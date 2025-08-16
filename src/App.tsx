@@ -1,51 +1,77 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import React, { useState } from "react";
+import Header from "./components/Header";
+import FileList from "./components/FileList";
+import Sidebar from "./components/Sidebar";
+import Settings from "./components/Settings";
+import Unlock from "./components/Unlock";
+import { EncryptedFile, Page } from "./types";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+const dummyFiles: EncryptedFile[] = [
+  {
+    status: "Encrypted",
+    encryptedDate: "2025-08-16",
+    originalName: "annual_report.pdf",
+    encryptedSize: "1.2 MB",
+  },
+  {
+    status: "Encrypted",
+    encryptedDate: "2025-08-15",
+    originalName: "project_alpha_brief.docx",
+    encryptedSize: "500 KB",
+  },
+  {
+    status: "Encrypted",
+    encryptedDate: "2025-08-14",
+    originalName: "family_vacation.mp4",
+    encryptedSize: "15.8 GB",
+  },
+  {
+    status: "Encrypted",
+    encryptedDate: "2025-08-12",
+    originalName: "logo_design.ai",
+    encryptedSize: "3.1 MB",
+  },
+];
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+const App: React.FC = () => {
+  const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
+  const [activePage, setActivePage] = useState<Page>("files");
+
+  const handleUnlock = () => {
+    setIsUnlocked(true);
+    setActivePage("files");
+  };
+
+  const handleLock = () => {
+    setIsUnlocked(false);
+  };
+
+  if (isUnlocked) {
+    return (
+      <div className="app-container">
+        <Header onNavigate={setActivePage} onLogout={handleLock} />
+        <div className="app-body">
+          <Sidebar activePage={activePage} onNavigate={setActivePage} />
+          <main className="app-content">
+            {activePage === "files" && (
+              <>
+                <h1>Encrypted Files</h1>
+                <div className="controls">
+                  <button>Add New</button>
+                  <input type="text" placeholder="Search files..." />
+                </div>
+                <FileList files={dummyFiles} />
+              </>
+            )}
+            {activePage === "settings" && <Settings />}
+          </main>
+        </div>
+      </div>
+    );
   }
 
-  return (
-    <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
-    </main>
-  );
-}
+  return <Unlock onUnlock={handleUnlock} />;
+};
 
 export default App;
