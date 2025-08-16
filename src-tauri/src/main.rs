@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    secure_valut_lib::run()
+    secure_vault_lib::run()
 }
