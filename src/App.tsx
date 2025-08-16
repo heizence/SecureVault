@@ -6,45 +6,82 @@ import Settings from "./components/Settings";
 import Unlock from "./components/Unlock";
 import { EncryptedFile, Page } from "./types";
 import "./App.css";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 const dummyFiles: EncryptedFile[] = [
-  {
-    status: "Encrypted",
-    encryptedDate: "2025-08-16",
-    originalName: "annual_report.pdf",
-    encryptedSize: "1.2 MB",
-  },
-  {
-    status: "Encrypted",
-    encryptedDate: "2025-08-15",
-    originalName: "project_alpha_brief.docx",
-    encryptedSize: "500 KB",
-  },
-  {
-    status: "Encrypted",
-    encryptedDate: "2025-08-14",
-    originalName: "family_vacation.mp4",
-    encryptedSize: "15.8 GB",
-  },
-  {
-    status: "Encrypted",
-    encryptedDate: "2025-08-12",
-    originalName: "logo_design.ai",
-    encryptedSize: "3.1 MB",
-  },
+  // ... (dummyFiles 내용은 이전과 동일하게 유지)
 ];
 
 const App: React.FC = () => {
   const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
   const [activePage, setActivePage] = useState<Page>("files");
 
-  const handleUnlock = () => {
-    setIsUnlocked(true);
-    setActivePage("files");
+  const handleUnlock = () => setIsUnlocked(true);
+  const handleLock = () => setIsUnlocked(false);
+
+  // 파일 암호화 함수 (수정 없음)
+  const handleEncryptFile = async () => {
+    try {
+      const selectedPath = await open({
+        multiple: false,
+        title: "Select a file to encrypt",
+      });
+      if (typeof selectedPath === "string") {
+        const password = window.prompt("Enter a password for this file:");
+        if (password) {
+          await invoke("encrypt_file", { filePath: selectedPath, password });
+          alert("File encrypted successfully!");
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      alert(`Error: ${error}`);
+    }
   };
 
-  const handleLock = () => {
-    setIsUnlocked(false);
+  // --- 새로 추가된 파일 복호화 함수 ---
+  const handleDecryptFile = async () => {
+    try {
+      // 1. .enc 파일 선택 다이얼로그 열기
+      const selectedPath = await open({
+        multiple: false,
+        title: "Select a file to decrypt",
+        filters: [{ name: "Encrypted Files", extensions: ["enc"] }],
+      });
+
+      if (typeof selectedPath === "string") {
+        // 2. 사용자에게 비밀번호 입력받기
+        const password = window.prompt("Enter the password for this file:");
+        if (password) {
+          // 3. Rust의 decrypt_file command 호출
+          await invoke("decrypt_file", { filePath: selectedPath, password });
+          alert("File decrypted successfully!");
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      alert(`Error: ${error}`);
+    }
+  };
+
+  const handleOpenFile = (file: EncryptedFile) => {
+    alert(`Opening ${file.originalName}... (placeholder)`);
+    // TODO: 추후 실제 파일 열기 로직 구현
+  };
+
+  // 'Export' 버튼 클릭 시 실행될 함수
+  const handleExportFile = (file: EncryptedFile) => {
+    alert(`Exporting ${file.originalName}... (placeholder)`);
+    // TODO: 추후 실제 파일 내보내기 로직 구현
+  };
+
+  // 'Delete' 버튼 클릭 시 실행될 함수
+  const handleDeleteFile = (file: EncryptedFile) => {
+    if (window.confirm(`Are you sure you want to delete ${file.originalName}?`)) {
+      alert(`Deleting ${file.originalName}... (placeholder)`);
+      // TODO: 추후 실제 파일 삭제 로직 구현
+    }
   };
 
   if (isUnlocked) {
@@ -58,10 +95,19 @@ const App: React.FC = () => {
               <>
                 <h1>Encrypted Files</h1>
                 <div className="controls">
-                  <button>Add New</button>
+                  <button onClick={handleEncryptFile}>Encrypt File</button>
+                  <button onClick={handleDecryptFile} style={{ marginLeft: "10px" }}>
+                    Decrypt File
+                  </button>
                   <input type="text" placeholder="Search files..." />
                 </div>
-                <FileList files={dummyFiles} />
+                {/* FileList에 새로 만든 핸들러 함수들을 props로 전달 */}
+                <FileList
+                  files={dummyFiles}
+                  onOpenFile={handleOpenFile}
+                  onExportFile={handleExportFile}
+                  onDeleteFile={handleDeleteFile}
+                />
               </>
             )}
             {activePage === "settings" && <Settings />}

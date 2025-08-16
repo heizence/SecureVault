@@ -5,9 +5,12 @@ import { invoke } from "@tauri-apps/api/core";
 
 interface FileListProps {
   files: EncryptedFile[];
+  onOpenFile: (file: EncryptedFile) => void;
+  onExportFile: (file: EncryptedFile) => void;
+  onDeleteFile: (file: EncryptedFile) => void;
 }
 
-const FileList: React.FC<FileListProps> = ({ files }) => {
+const FileList: React.FC<FileListProps> = ({ files, onOpenFile, onExportFile, onDeleteFile }) => {
   // Rust의 greet 함수를 호출하는 비동기 함수
   const callGreetCommand = async () => {
     try {
@@ -47,9 +50,9 @@ const FileList: React.FC<FileListProps> = ({ files }) => {
             <div className="column">{file.originalName}</div>
             <div className="column">{file.encryptedSize}</div>
             <div className="column">
-              <button>Open</button>
-              <button>Export</button>
-              <button>Delete</button>
+              <button onClick={() => onOpenFile(file)}>Open</button>
+              <button onClick={() => onExportFile(file)}>Export</button>
+              <button onClick={() => onDeleteFile(file)}>Delete</button>
             </div>
           </div>
         ))}
