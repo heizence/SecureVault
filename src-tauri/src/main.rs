@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use tauri::Manager;
+use tauri::{Emitter, Manager, State};
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use argon2::{
@@ -12,11 +12,12 @@ use argon2::{
 use rand::RngCore;
 
 use std::env;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs::{self, File, OpenOptions};
+use std::io::{Read, Write};
 use std::path::Path;
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 // 마스터 키를 메모리에 안전하게 보관할 구조체 정의
 // Mutex를 사용하여 여러 스레드에서 동시에 접근해도 안전하도록 합니다.
@@ -24,7 +25,22 @@ pub struct Vault {
     key: Mutex<Option<Key<Aes256Gcm>>>,
 }
 
-// 앱 설정 파일 경로를 가져오는 헬퍼 함수
+// 취소 상태를 안전하게 공유하기 위한 구조체
+pub struct OperationState {
+    is_cancelled: Arc<AtomicBool>,
+}
+
+// 프론트엔드로 보낼 진행 상황 이벤트 데이터 구조
+#[derive(Clone, serde::Serialize)]
+struct ProgressPayload {
+    status: String,
+    current_file_path: String,
+    total_files: usize,
+    current_file_number: usize,
+    total_progress: f64, // 전체 진행률 (0.0 ~ 1.0)
+}
+
+/******************* 앱 설정 파일 경로를 가져오는 헬퍼 함수 ******************/
 fn get_vault_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     // --- FIX 1: ok_or -> map_err로 수정 ---
     let config_dir = app.path()
@@ -37,7 +53,7 @@ fn get_vault_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     Ok(config_dir.join("vault.key"))
 }
 
-// 앱 시작 시 vault.key 파일이 있는지 확인
+/******************* 앱 시작 시 vault.key 파일이 있는지 확인 ******************/
 #[tauri::command]
 fn vault_exists(app: tauri::AppHandle) -> Result<bool, String> {
     let vault_path = get_vault_path(&app)?;
@@ -45,6 +61,7 @@ fn vault_exists(app: tauri::AppHandle) -> Result<bool, String> {
 }
 
 // 최초 실행 시 마스터 키 생성 및 저장
+
 #[tauri::command]
 fn create_vault(app: tauri::AppHandle, password: String) -> Result<(), String> {
     // 1. 새로운 마스터 키 (Vault Key)를 무작위로 생성
@@ -83,7 +100,7 @@ fn create_vault(app: tauri::AppHandle, password: String) -> Result<(), String> {
     Ok(())
 }
 
-// 사용자가 입력한 비밀번호로 vault 잠금 해제 및 마스터 키를 메모리에 로드
+/******************* 사용자가 입력한 비밀번호로 vault 잠금 해제 및 마스터 키를 메모리에 로드 ******************/
 #[tauri::command]
 fn unlock_vault(app: tauri::AppHandle, password: String, vault_state: tauri::State<Vault>) -> Result<(), String> {
     let vault_path = get_vault_path(&app)?;
@@ -118,9 +135,9 @@ fn unlock_vault(app: tauri::AppHandle, password: String, vault_state: tauri::Sta
     Ok(())
 }
 
-// 암호화 함수
+/******************* 암호화 함수 ******************/
 #[tauri::command]
-fn encrypt_file(file_path: String, vault: tauri::State<Vault>, destination_dir: String) -> Result<(), String> {
+fn encrypt_files(file_path: String, vault: tauri::State<Vault>, destination_dir: String) -> Result<(), String> {
     // 잠금 해제 시 저장된 마스터 키를 가져옵니다.
     let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
     let source_path = Path::new(&file_path);
@@ -150,9 +167,79 @@ fn encrypt_file(file_path: String, vault: tauri::State<Vault>, destination_dir: 
     Ok(())
 }
 
-// 복호화 함수
+/******************* 총 진행률을 계산하는 async 암호화 커맨드 ******************/
 #[tauri::command]
-fn decrypt_file(file_path: String, vault: tauri::State<Vault>) -> Result<(), String> {
+async fn encrypt_files_with_progress(
+    app: tauri::AppHandle,
+    vault: State<'_, Vault>,
+    files: Vec<String>,
+    destination_dir: String,
+    op_state: State<'_, OperationState>,
+) -> Result<(), String> {
+    let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
+    op_state.is_cancelled.store(false, Ordering::SeqCst);
+    let cancel_flag = op_state.is_cancelled.clone();
+    let total_files = files.len();
+
+    for (index, file_path) in files.into_iter().enumerate() {
+        if cancel_flag.load(Ordering::SeqCst) { break; }
+
+        // --- 하이라이트: 파일 처리 로직 시작 ---
+        // 각 파일을 처리하기 위한 즉시 실행 클로저
+        let result: Result<(), String> = (|| {
+            // 1. 파일 전체를 메모리로 읽습니다.
+            let original_data = fs::read(&file_path).map_err(|e| e.to_string())?;
+
+            // 2. 새로운 논스를 생성합니다.
+            let mut nonce_bytes = [0u8; 12];
+            rand::rng().fill_bytes(&mut nonce_bytes);
+            let nonce = Nonce::from_slice(&nonce_bytes);
+            
+            // 3. 단 한 번의 암호화 작업을 수행합니다.
+            let cipher = Aes256Gcm::new(&vault_key);
+            let encrypted_data = cipher.encrypt(nonce, original_data.as_ref()).map_err(|e| e.to_string())?;
+
+            // 4. [논스] + [암호화된 데이터]를 파일에 씁니다.
+            let mut final_data = Vec::new();
+            final_data.extend_from_slice(&nonce_bytes);
+            final_data.extend_from_slice(&encrypted_data);
+
+            let dest_filename = format!("{}.enc", Path::new(&file_path).file_name().unwrap().to_str().unwrap());
+            let dest_path = Path::new(&destination_dir).join(dest_filename);
+            fs::write(dest_path, final_data).map_err(|e| e.to_string())?;
+
+            Ok(())
+        })();
+        // --- 하이라이트: 파일 처리 로직 끝 ---
+
+        if let Err(e) = result {
+            app.emit("ERROR_EVENT", e.to_string()).unwrap();
+            return Ok(());
+        }
+        // 파일 하나 처리가 끝날 때마다 진행률을 업데이트합니다.
+        
+        app.emit("PROGRESS_EVENT", ProgressPayload {
+            status: "processing".to_string(),
+            current_file_path: file_path.clone(),
+            total_files,
+            current_file_number: index + 1,
+            total_progress: (index + 1) as f64 / total_files as f64,
+        }).unwrap();
+    }
+    app.emit("PROGRESS_EVENT", ProgressPayload { 
+        status: "done".to_string(),
+        current_file_path: "Done".to_string(), 
+        total_files,
+        current_file_number: total_files,
+        total_progress: 1.0,
+    }).unwrap();
+    // ... (완료 이벤트는 동일)
+    Ok(())
+}
+
+/******************* 복호화 함수 ******************/
+#[tauri::command]
+fn decrypt_files(file_path: String, vault: tauri::State<Vault>) -> Result<(), String> {
     let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
 
     let encrypted_file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
@@ -172,61 +259,72 @@ fn decrypt_file(file_path: String, vault: tauri::State<Vault>) -> Result<(), Str
     Ok(())
 }
 
-// 안전하게 열기 함수
-// #[tauri::command]
-// async fn secure_open_file(app: tauri::AppHandle, file_path: String, password: String) -> Result<(), String> {
-//     // 1. 파일을 복호화하여 메모리에 저장합니다 (디스크에 쓰지 않음).
-//     let decrypted_data = {
-//         let encrypted_file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
-//         if encrypted_file_data.len() < 28 { return Err("Invalid file format.".into()); }
-//         let salt_bytes = &encrypted_file_data[0..16];
-//         let nonce_bytes = &encrypted_file_data[16..28];
-//         let encrypted_data = &encrypted_file_data[28..];
-//         let salt = SaltString::encode_b64(salt_bytes).map_err(|e| e.to_string())?;
-//         let nonce = Nonce::from_slice(nonce_bytes);
-//         let argon2 = Argon2::new(
-//             argon2::Algorithm::Argon2id,
-//             Version::V0x13,
-//             Params::new(15000, 2, 1, None).unwrap()
-//         );
-//         let key_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| e.to_string())?;
-//         let key_bytes = key_hash.hash.unwrap();
-//         let key = Key::<Aes256Gcm>::from_slice(&key_bytes.as_bytes()[..32]);
-//         let cipher = Aes256Gcm::new(key);
-//         cipher.decrypt(nonce, encrypted_data)
-//             .map_err(|_| "Decryption failed. Check password.".to_string())?
-//     };
+// --- 하이라이트: 함수 전체 신규 추가 ---
+#[tauri::command]
+async fn decrypt_files_with_progress(
+    app: tauri::AppHandle,
+    vault: State<'_, Vault>,
+    files: Vec<String>,
+    op_state: State<'_, OperationState>,
+) -> Result<(), String> {
+    let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
+    op_state.is_cancelled.store(false, Ordering::SeqCst);
+    let cancel_flag = op_state.is_cancelled.clone();
+    let total_files = files.len();
 
-//     // 2. 임시 파일 경로를 생성합니다.
-//     let original_filename = Path::new(&file_path)
-//         .file_name()
-//         .unwrap()
-//         .to_str()
-//         .unwrap()
-//         .strip_suffix(".enc")
-//         .unwrap_or("tempfile");
+    for (index, file_path) in files.into_iter().enumerate() {
+        if cancel_flag.load(Ordering::SeqCst) { break; }
 
-//     // 파일 이름이 중복되지 않도록 현재 시간을 덧붙입니다.
-//     let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
-//     let temp_filename = format!("{}_{}", timestamp, original_filename);
-//     let temp_path = env::temp_dir().join(temp_filename);
+        let result: Result<(), String> = (|| {
+            let encrypted_file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
+            if encrypted_file_data.len() < 12 { return Err("Invalid encrypted file".into()); }
 
-//     // 3. 복호화된 데이터를 임시 파일에 씁니다.
-//     fs::write(&temp_path, decrypted_data).map_err(|e| e.to_string())?;
+            let nonce_bytes = &encrypted_file_data[0..12];
+            let encrypted_data = &encrypted_file_data[12..];
+            let nonce = Nonce::from_slice(nonce_bytes);
+            
+            let cipher = Aes256Gcm::new(&vault_key);
+            let decrypted_data = cipher.decrypt(nonce, encrypted_data)
+                .map_err(|_| "Decryption failed. File may be corrupt.".to_string())?;
 
-//     // 4. Shell 플러그인을 사용하여 임시 파일을 엽니다.
-//     let shell = app.shell();
-//     shell.open(temp_path.to_str().unwrap(), None)
-//         .map_err(|e| format!("Failed to open file: {}", e))?;
+            let dest_path_str = file_path.strip_suffix(".enc").ok_or("Invalid filename")?;
+            fs::write(dest_path_str, decrypted_data).map_err(|e| e.to_string())?;
 
-//     // 참고: 실제 상용 앱에서는 열린 프로그램이 종료될 때까지 기다렸다가
-//     // 임시 파일을 삭제하는 로직(process monitoring)이 추가되어야 합니다.
-//     // 지금은 기능 구현을 위해 열기까지만 진행합니다.
+            Ok(())
+        })();
 
-//     Ok(())
-// }
+        if let Err(e) = result {
+            app.emit("ERROR_EVENT", e.to_string()).unwrap();
+            return Ok(());
+        }
 
-// 보안 삭제 함수
+        app.emit("PROGRESS_EVENT", ProgressPayload {
+            status: "processing".to_string(),
+            current_file_path: file_path.clone(),
+            total_files,
+            current_file_number: index + 1,
+            total_progress: (index + 1) as f64 / total_files as f64,
+        }).unwrap();
+    }
+    
+    app.emit("PROGRESS_EVENT", ProgressPayload { 
+        status: "done".to_string(),
+        current_file_path: "Done".to_string(), 
+        total_files,
+        current_file_number: total_files,
+        total_progress: 1.0,
+    }).unwrap();
+    Ok(())
+}
+
+/******************* 암호화/복호화 취소 ******************/
+#[tauri::command]
+fn cancel_operation(op_state: State<OperationState>) -> Result<(), String> {
+    op_state.is_cancelled.store(true, Ordering::SeqCst);
+    Ok(())
+}
+
+/******************* 보안 삭제 함수 ******************/
 #[tauri::command]
 fn secure_delete_file(file_path: String) -> Result<(), String> {
     let path = Path::new(&file_path);
@@ -265,7 +363,7 @@ fn secure_delete_file(file_path: String) -> Result<(), String> {
 }
 
 
-// --- 새로 추가된 비밀번호 변경 함수 ---
+/******************* 비밀번호 변경 함수 ******************/
 #[tauri::command]
 fn change_password(app: tauri::AppHandle, old_password: String, new_password: String) -> Result<(), String> {
     let vault_path = get_vault_path(&app)?;
@@ -328,15 +426,18 @@ fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .manage(Vault { key: Default::default() })
+        .manage(OperationState { is_cancelled: Arc::new(AtomicBool::new(false)) })
         .invoke_handler(tauri::generate_handler![
             vault_exists,
             create_vault,
             unlock_vault,
-            encrypt_file, 
-            decrypt_file, 
-            change_password,
-            // secure_open_file,
-            secure_delete_file
+            encrypt_files, 
+            decrypt_files, 
+            encrypt_files_with_progress,            
+            decrypt_files_with_progress,
+            secure_delete_file,
+            cancel_operation,
+            change_password,        
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
