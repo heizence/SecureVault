@@ -9,7 +9,9 @@ use argon2::{
     Argon2, Params, Version,
 };
 use rand::RngCore;
-use std::fs;
+
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::path::Path;
 
 // --- 이전 단계에서 작성한 암호화 함수 (수정 없음) ---
@@ -114,10 +116,49 @@ fn decrypt_file(file_path: String, password: String) -> Result<(), String> {
     Ok(())
 }
 
+// --- 새로 추가된 보안 삭제 함수 ---
+#[tauri::command]
+fn secure_delete_file(file_path: String) -> Result<(), String> {
+    let path = Path::new(&file_path);
+
+    // 1. 파일 메타데이터를 읽어 파일 크기를 가져옵니다.
+    let metadata = fs::metadata(path)
+        .map_err(|e| format!("Failed to read file metadata: {}", e))?;
+    let file_size = metadata.len();
+
+    // 2. 파일을 쓰기 모드로 엽니다.
+    let mut file = OpenOptions::new().write(true).open(path)
+        .map_err(|e| format!("Failed to open file for writing: {}", e))?;
+
+    // 3. 파일 크기만큼 무작위 데이터로 덮어씁니다. (1회)
+    // 보안 강도를 높이려면 이 과정을 여러 번 반복할 수 있습니다.
+    const CHUNK_SIZE: usize = 1024 * 1024; // 1MB 단위로 덮어쓰기
+    let mut buffer = vec![0u8; CHUNK_SIZE];
+    let mut written_bytes = 0u64;
+
+    while written_bytes < file_size {
+        rand::thread_rng().fill_bytes(&mut buffer);
+        let bytes_to_write = std::cmp::min(file_size - written_bytes, CHUNK_SIZE as u64) as usize;
+        file.write_all(&buffer[..bytes_to_write])
+            .map_err(|e| format!("Failed to overwrite file: {}", e))?;
+        written_bytes += bytes_to_write as u64;
+    }
+    
+    // 파일 동기화로 모든 데이터가 디스크에 확실히 쓰여지도록 보장합니다.
+    file.sync_all().map_err(|e| e.to_string())?;
+
+    // 4. 파일을 최종적으로 삭제합니다.
+    fs::remove_file(path)
+        .map_err(|e| format!("Failed to delete file after overwrite: {}", e))?;
+
+    Ok(())
+}
+
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file])
+        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, secure_delete_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import Settings from "./components/Settings";
@@ -66,23 +66,32 @@ const App: React.FC = () => {
     }
   };
 
-  const handleOpenFile = (file) => {
-    alert(`Opening ${file.originalName}... (placeholder)`);
-    // TODO: 추후 실제 파일 열기 로직 구현
-  };
+  const handleSecureDelete = async () => {
+    try {
+      const selectedPath = await open({
+        multiple: false,
+        title: "Select a file to securely delete",
+      });
 
-  // 'Export' 버튼 클릭 시 실행될 함수
-  const handleExportFile = (file) => {
-    alert(`Exporting ${file.originalName}... (placeholder)`);
-    // TODO: 추후 실제 파일 내보내기 로직 구현
-  };
+      if (typeof selectedPath === "string") {
+        const confirmed = await ask(
+          `WARNING: This will permanently delete the file.\n\n${selectedPath}\n\nThis action cannot be undone. Are you sure?`,
+          {
+            title: "Confirm Secure Deletion",
+            okLabel: "Delete Permanently",
+            cancelLabel: "Cancel",
+            type: "warning",
+          }
+        );
 
-  // 'Delete' 버튼 클릭 시 실행될 함수
-  const handleDeleteFile = async (file) => {
-    const answer = await ask(`Are you sure you want to delete ${file.originalName}?`);
-    if (answer) {
-      alert(`Deleting ${file.originalName}... (placeholder)`);
-      // TODO: 추후 실제 파일 삭제 로직 구현
+        if (confirmed) {
+          await invoke("secure_delete_file", { filePath: selectedPath });
+          await message("File securely deleted successfully.");
+        }
+      }
+    } catch (error) {
+      console.error(error);
+      await message(`Error: ${error}`);
     }
   };
 
@@ -106,7 +115,12 @@ const App: React.FC = () => {
                   >
                     Decrypt File
                   </button>
-                  <input type="text" placeholder="Search files..." />
+                  <button
+                    onClick={handleSecureDelete}
+                    style={{ marginLeft: "10px", backgroundColor: "#dc3545", color: "white" }}
+                  >
+                    Securely Delete File
+                  </button>
                 </div>
               </>
             )}
