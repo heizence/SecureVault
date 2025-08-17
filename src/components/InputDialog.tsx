@@ -1,4 +1,5 @@
 import { useState } from "react";
+import "./InputDialog.css";
 
 export default function InputDialog({
   onSubmit,
@@ -9,27 +10,28 @@ export default function InputDialog({
 }) {
   const [value, setValue] = useState("");
 
+  const handleSubmit = () => {
+    onSubmit(value);
+    onClose();
+  };
+
   return (
-    <div className="fixed inset-0 flex items-center justify-center bg-black/50">
-      <div className="bg-white p-6 rounded-xl shadow-lg w-80">
-        <h2 className="text-lg mb-4">비밀번호를 입력하세요</h2>
+    <div className="dialog-overlay">
+      <div className="dialog-box">
+        <h2 className="dialog-title">비밀번호를 입력하세요</h2>
         <input
           type="password"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="border rounded w-full px-2 py-1 mb-4"
+          onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+          className="dialog-input"
+          autoFocus
         />
-        <div className="flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1 rounded bg-gray-200">
+        <div className="dialog-actions">
+          <button onClick={onClose} className="dialog-button cancel">
             취소
           </button>
-          <button
-            onClick={() => {
-              onSubmit(value);
-              onClose();
-            }}
-            className="px-3 py-1 rounded bg-blue-500 text-white"
-          >
+          <button onClick={handleSubmit} className="dialog-button confirm">
             확인
           </button>
         </div>

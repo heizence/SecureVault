@@ -41,3 +41,12 @@
   border: 1px solid #ccc;
   border-radius: 4px;
 }
+.app-buttons {
+  margin-right: 10px;
+  font-size: 15px;
+  padding: 5px;
+  border-radius: 4px;
+  background-color: white;
+  border-width: 1px;
+  border-color: rgb(122, 122, 122);
+}

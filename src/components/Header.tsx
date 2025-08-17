@@ -14,18 +14,7 @@ const Header: React.FC<HeaderProps> = ({ onNavigate, onLogout }) => {
         SecureVault
       </div>
       <nav className="main-nav">
-        <ul>
-          <li>
-            <a href="#" onClick={() => onNavigate("files")}>
-              Encrypted Files
-            </a>
-          </li>
-          <li>
-            <a href="#" onClick={() => onNavigate("settings")}>
-              Settings
-            </a>
-          </li>
-        </ul>
+        <ul></ul>
       </nav>
       <div className="user-info">
         <span>Welcome!</span>

@@ -1,6 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+use tauri::Manager;
 use aes_gcm::aead::Aead;
 use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
 use argon2::{
@@ -10,113 +11,222 @@ use argon2::{
 };
 use rand::RngCore;
 
+use std::env;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::Path;
+use std::path::PathBuf;
+use std::sync::Mutex;
 
-// --- 이전 단계에서 작성한 암호화 함수 (수정 없음) ---
+// 마스터 키를 메모리에 안전하게 보관할 구조체 정의
+// Mutex를 사용하여 여러 스레드에서 동시에 접근해도 안전하도록 합니다.
+pub struct Vault {
+    key: Mutex<Option<Key<Aes256Gcm>>>,
+}
+
+// 앱 설정 파일 경로를 가져오는 헬퍼 함수
+fn get_vault_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    // --- FIX 1: ok_or -> map_err로 수정 ---
+    let config_dir = app.path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?;
+
+    if !config_dir.exists() {
+        fs::create_dir_all(&config_dir).map_err(|e| e.to_string())?;
+    }
+    Ok(config_dir.join("vault.key"))
+}
+
+// 앱 시작 시 vault.key 파일이 있는지 확인
 #[tauri::command]
-fn encrypt_file(file_path: String, password: String) -> Result<(), String> {
-    // ... (이전과 동일한 암호화 코드)
-    let source_path = Path::new(&file_path);
-    let original_data =
-        fs::read(source_path).map_err(|e| format!("Failed to read source file: {}", e))?;
+fn vault_exists(app: tauri::AppHandle) -> Result<bool, String> {
+    let vault_path = get_vault_path(&app)?;
+    Ok(vault_path.exists())
+}
 
+// 최초 실행 시 마스터 키 생성 및 저장
+#[tauri::command]
+fn create_vault(app: tauri::AppHandle, password: String) -> Result<(), String> {
+    // 1. 새로운 마스터 키 (Vault Key)를 무작위로 생성
+    let mut vault_key_bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut vault_key_bytes);
+    let vault_key = Key::<Aes256Gcm>::from_slice(&vault_key_bytes);
+
+    // 2. 비밀번호를 해싱하여 마스터 키를 암호화할 키(KEK) 생성
     let mut salt_bytes = [0u8; 16];
-    rand::thread_rng().fill_bytes(&mut salt_bytes);
-
-    let salt =
-        SaltString::encode_b64(&salt_bytes).map_err(|e| format!("Failed to create salt: {}", e))?;
-
-    let argon2 = Argon2::new(
+    rand::rng().fill_bytes(&mut salt_bytes);
+    let salt = SaltString::encode_b64(&salt_bytes).map_err(|e| e.to_string())?;
+    let argon2 = Argon2::new(  
         argon2::Algorithm::Argon2id,
         Version::V0x13,
-        Params::new(15000, 2, 1, None).unwrap(),
+        Params::new(15000, 2, 1, None).unwrap()
     );
-
-    let key_hash = argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| format!("Failed to derive key: {}", e))?;
-
-    let key_bytes = key_hash.hash.unwrap();
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes.as_bytes()[..32]);
-
-    let cipher = Aes256Gcm::new(key);
+    let kek_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| e.to_string())?;
+    let binding = kek_hash.hash.unwrap();    
+    let kek = Key::<Aes256Gcm>::from_slice(&binding.as_bytes()[..32]);
+    
+    // 3. 마스터 키(Vault Key)를 KEK로 암호화
+    let cipher = Aes256Gcm::new(kek);
     let mut nonce_bytes = [0u8; 12];
-    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
+    let encrypted_vault_key = cipher.encrypt(nonce, vault_key.as_slice()).map_err(|e| e.to_string())?;
 
-    let encrypted_data = cipher
-        .encrypt(nonce, original_data.as_ref())
-        .map_err(|e| format!("Encryption failed: {}", e))?;
-
+    // 4. [솔트] + [논스] + [암호화된 마스터 키] 형태로 파일에 저장
     let mut final_data = Vec::new();
     final_data.extend_from_slice(&salt_bytes);
     final_data.extend_from_slice(&nonce_bytes);
-    final_data.extend_from_slice(&encrypted_data);
+    final_data.extend_from_slice(&encrypted_vault_key);
 
-    let dest_path_str = format!("{}.enc", file_path);
-    let dest_path = Path::new(&dest_path_str);
-    fs::write(dest_path, final_data)
-        .map_err(|e| format!("Failed to write encrypted file: {}", e))?;
-
+    let vault_path = get_vault_path(&app)?;
+    fs::write(vault_path, final_data).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-// --- 새로 추가된 복호화 함수 ---
+// 사용자가 입력한 비밀번호로 vault 잠금 해제 및 마스터 키를 메모리에 로드
 #[tauri::command]
-fn decrypt_file(file_path: String, password: String) -> Result<(), String> {
-    // ---- 1. 암호화된 파일 읽기 ----
-    let source_path = Path::new(&file_path);
-    let encrypted_file_data =
-        fs::read(source_path).map_err(|e| format!("Failed to read encrypted file: {}", e))?;
+fn unlock_vault(app: tauri::AppHandle, password: String, vault_state: tauri::State<Vault>) -> Result<(), String> {
+    let vault_path = get_vault_path(&app)?;
+    let vault_data = fs::read(vault_path).map_err(|e| e.to_string())?;
 
-    // ---- 2. 헤더 정보 분리 (솔트, 논스) ----
-    if encrypted_file_data.len() < 28 {
-        // 솔트(16) + 논스(12) = 28
-        return Err("Invalid encrypted file format.".to_string());
-    }
-    let salt_bytes: &[u8] = &encrypted_file_data[0..16];
-    let nonce_bytes: &[u8] = &encrypted_file_data[16..28];
-    let encrypted_data: &[u8] = &encrypted_file_data[28..];
-
-    let salt =
-        SaltString::encode_b64(salt_bytes).map_err(|e| format!("Failed to parse salt: {}", e))?;
+    // 1. 파일에서 솔트, 논스, 암호화된 마스터 키 분리
+    if vault_data.len() < 28 { return Err("Invalid vault file".into()); }
+    let salt_bytes = &vault_data[0..16];
+    let nonce_bytes = &vault_data[16..28];
+    let encrypted_vault_key = &vault_data[28..];
+    let salt = SaltString::encode_b64(salt_bytes).map_err(|e| e.to_string())?;
     let nonce = Nonce::from_slice(nonce_bytes);
 
-    // ---- 3. 마스터 키 재생성 (암호화와 동일한 로직) ----
-    let argon2 = Argon2::new(
+    // 2. 비밀번호로 KEK 재생성
+    let argon2 = Argon2::new(  
         argon2::Algorithm::Argon2id,
         Version::V0x13,
-        Params::new(15000, 2, 1, None).unwrap(),
+        Params::new(15000, 2, 1, None).unwrap()
     );
-    let key_hash = argon2
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| format!("Failed to derive key: {}", e))?;
-    let key_bytes = key_hash.hash.unwrap();
-    let key = Key::<Aes256Gcm>::from_slice(&key_bytes.as_bytes()[..32]);
+    let kek_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| e.to_string())?;
+    let binding = kek_hash.hash.unwrap();    
+    let kek = Key::<Aes256Gcm>::from_slice(&binding.as_bytes()[..32]);
 
-    // ---- 4. 데이터 복호화 ----
-    let cipher = Aes256Gcm::new(key);
-    // `decrypt` 함수는 데이터 무결성 검사를 자동으로 수행합니다.
-    // 만약 비밀번호가 틀리면 키가 달라지므로, 이 단계에서 에러가 발생합니다.
-    let decrypted_data = cipher
-        .decrypt(nonce, encrypted_data)
-        .map_err(|_| "Decryption failed. Check your password.".to_string())?;
+    // 3. 마스터 키 복호화 시도
+    let cipher = Aes256Gcm::new(kek);
+    let vault_key_bytes = cipher.decrypt(nonce, encrypted_vault_key)
+        .map_err(|_| "Unlock failed. Check password.".to_string())?;
+    let vault_key = Key::<Aes256Gcm>::from_slice(&vault_key_bytes);
 
-    // ---- 5. 복호화된 파일 저장 ----
-    // ".enc" 확장자를 제거하여 원본 파일 경로를 만듭니다.
-    let dest_path_str = file_path
-        .strip_suffix(".enc")
-        .ok_or("Invalid file name: should end with .enc".to_string())?;
-    let dest_path = Path::new(&dest_path_str);
-    fs::write(dest_path, decrypted_data)
-        .map_err(|e| format!("Failed to write decrypted file: {}", e))?;
-
+    // 4. 성공 시, 마스터 키를 Tauri 상태(State)에 저장
+    *vault_state.key.lock().unwrap() = Some(*vault_key);
     Ok(())
 }
 
-// --- 새로 추가된 보안 삭제 함수 ---
+// 암호화 함수
+#[tauri::command]
+fn encrypt_file(file_path: String, vault: tauri::State<Vault>, destination_dir: String) -> Result<(), String> {
+    // 잠금 해제 시 저장된 마스터 키를 가져옵니다.
+    let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
+    let source_path = Path::new(&file_path);
+    let original_data = fs::read(&file_path).map_err(|e| e.to_string())?;
+
+    // 파일 암호화에는 마스터 키를 직접 사용합니다.
+    let cipher = Aes256Gcm::new(&vault_key);
+    let mut nonce_bytes = [0u8; 12];
+    rand::rng().fill_bytes(&mut nonce_bytes);
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let encrypted_data = cipher.encrypt(nonce, original_data.as_ref()).map_err(|e| e.to_string())?;
+
+    let mut final_data = Vec::new();
+    final_data.extend_from_slice(&nonce_bytes);
+    final_data.extend_from_slice(&encrypted_data);
+
+       // --- 저장 경로 생성 로직 변경 ---
+    let source_filename = source_path.file_name()
+        .ok_or("Could not get source filename")?
+        .to_str()
+        .ok_or("Filename contains invalid characters")?;
+
+    let dest_filename = format!("{}.enc", source_filename);
+    let dest_path = Path::new(&destination_dir).join(dest_filename);
+
+    fs::write(dest_path, final_data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// 복호화 함수
+#[tauri::command]
+fn decrypt_file(file_path: String, vault: tauri::State<Vault>) -> Result<(), String> {
+    let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
+
+    let encrypted_file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
+    
+    // 파일에서 논스와 암호화된 데이터를 분리합니다.
+    if encrypted_file_data.len() < 12 { return Err("Invalid encrypted file".into()); }
+    let nonce_bytes = &encrypted_file_data[0..12];
+    let encrypted_data = &encrypted_file_data[12..];
+    let nonce = Nonce::from_slice(nonce_bytes);
+
+    let cipher = Aes256Gcm::new(&vault_key);
+    let decrypted_data = cipher.decrypt(nonce, encrypted_data)
+        .map_err(|_| "Decryption failed. File may be corrupt.".to_string())?;
+
+    let dest_path_str = file_path.strip_suffix(".enc").ok_or("Invalid filename")?;
+    fs::write(dest_path_str, decrypted_data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// 안전하게 열기 함수
+// #[tauri::command]
+// async fn secure_open_file(app: tauri::AppHandle, file_path: String, password: String) -> Result<(), String> {
+//     // 1. 파일을 복호화하여 메모리에 저장합니다 (디스크에 쓰지 않음).
+//     let decrypted_data = {
+//         let encrypted_file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
+//         if encrypted_file_data.len() < 28 { return Err("Invalid file format.".into()); }
+//         let salt_bytes = &encrypted_file_data[0..16];
+//         let nonce_bytes = &encrypted_file_data[16..28];
+//         let encrypted_data = &encrypted_file_data[28..];
+//         let salt = SaltString::encode_b64(salt_bytes).map_err(|e| e.to_string())?;
+//         let nonce = Nonce::from_slice(nonce_bytes);
+//         let argon2 = Argon2::new(
+//             argon2::Algorithm::Argon2id,
+//             Version::V0x13,
+//             Params::new(15000, 2, 1, None).unwrap()
+//         );
+//         let key_hash = argon2.hash_password(password.as_bytes(), &salt).map_err(|e| e.to_string())?;
+//         let key_bytes = key_hash.hash.unwrap();
+//         let key = Key::<Aes256Gcm>::from_slice(&key_bytes.as_bytes()[..32]);
+//         let cipher = Aes256Gcm::new(key);
+//         cipher.decrypt(nonce, encrypted_data)
+//             .map_err(|_| "Decryption failed. Check password.".to_string())?
+//     };
+
+//     // 2. 임시 파일 경로를 생성합니다.
+//     let original_filename = Path::new(&file_path)
+//         .file_name()
+//         .unwrap()
+//         .to_str()
+//         .unwrap()
+//         .strip_suffix(".enc")
+//         .unwrap_or("tempfile");
+
+//     // 파일 이름이 중복되지 않도록 현재 시간을 덧붙입니다.
+//     let timestamp = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_secs();
+//     let temp_filename = format!("{}_{}", timestamp, original_filename);
+//     let temp_path = env::temp_dir().join(temp_filename);
+
+//     // 3. 복호화된 데이터를 임시 파일에 씁니다.
+//     fs::write(&temp_path, decrypted_data).map_err(|e| e.to_string())?;
+
+//     // 4. Shell 플러그인을 사용하여 임시 파일을 엽니다.
+//     let shell = app.shell();
+//     shell.open(temp_path.to_str().unwrap(), None)
+//         .map_err(|e| format!("Failed to open file: {}", e))?;
+
+//     // 참고: 실제 상용 앱에서는 열린 프로그램이 종료될 때까지 기다렸다가
+//     // 임시 파일을 삭제하는 로직(process monitoring)이 추가되어야 합니다.
+//     // 지금은 기능 구현을 위해 열기까지만 진행합니다.
+
+//     Ok(())
+// }
+
+// 보안 삭제 함수
 #[tauri::command]
 fn secure_delete_file(file_path: String) -> Result<(), String> {
     let path = Path::new(&file_path);
@@ -137,7 +247,7 @@ fn secure_delete_file(file_path: String) -> Result<(), String> {
     let mut written_bytes = 0u64;
 
     while written_bytes < file_size {
-        rand::thread_rng().fill_bytes(&mut buffer);
+        rand::rng().fill_bytes(&mut buffer);
         let bytes_to_write = std::cmp::min(file_size - written_bytes, CHUNK_SIZE as u64) as usize;
         file.write_all(&buffer[..bytes_to_write])
             .map_err(|e| format!("Failed to overwrite file: {}", e))?;
@@ -155,10 +265,79 @@ fn secure_delete_file(file_path: String) -> Result<(), String> {
 }
 
 
+// --- 새로 추가된 비밀번호 변경 함수 ---
+#[tauri::command]
+fn change_password(app: tauri::AppHandle, old_password: String, new_password: String) -> Result<(), String> {
+    let vault_path = get_vault_path(&app)?;
+    let vault_data = fs::read(&vault_path).map_err(|e| e.to_string())?;
+
+    // 1. 기존 비밀번호로 마스터 키 복호화 시도
+    let vault_key = {
+        if vault_data.len() < 28 { return Err("Invalid vault file".into()); }
+        let salt_bytes = &vault_data[0..16];
+        let nonce_bytes = &vault_data[16..28];
+        let encrypted_vault_key = &vault_data[28..];
+        let salt = SaltString::encode_b64(salt_bytes).map_err(|e| e.to_string())?;
+        let nonce = Nonce::from_slice(nonce_bytes);
+
+        let argon2 = Argon2::new(
+            argon2::Algorithm::Argon2id,
+            Version::V0x13,
+            Params::new(15000, 2, 1, None).unwrap()
+        );
+        let kek_hash = argon2.hash_password(old_password.as_bytes(), &salt).map_err(|e| e.to_string())?;
+        let binding = kek_hash.hash.unwrap();
+        let kek = Key::<Aes256Gcm>::from_slice(&binding.as_bytes()[..32]);
+
+        let cipher = Aes256Gcm::new(kek);
+        cipher.decrypt(nonce, encrypted_vault_key)
+            .map_err(|_| "Password change failed. Old password was incorrect.".to_string())?
+    };
+
+    // 2. 새로운 비밀번호로 마스터 키 재암호화
+    let mut new_salt_bytes = [0u8; 16];
+    rand::rng().fill_bytes(&mut new_salt_bytes);
+    let new_salt = SaltString::encode_b64(&new_salt_bytes).map_err(|e| e.to_string())?;
+    
+    let argon2 = Argon2::new(
+        argon2::Algorithm::Argon2id,
+        Version::V0x13,
+        Params::new(15000, 2, 1, None).unwrap()
+    );
+    let new_kek_hash = argon2.hash_password(new_password.as_bytes(), &new_salt).map_err(|e| e.to_string())?;
+    let binding = new_kek_hash.hash.unwrap();    
+    let new_kek = Key::<Aes256Gcm>::from_slice(&binding.as_bytes()[..32]);
+
+    let cipher = Aes256Gcm::new(new_kek);
+    let mut new_nonce_bytes = [0u8; 12];
+    rand::rng().fill_bytes(&mut new_nonce_bytes);
+    let new_nonce = Nonce::from_slice(&new_nonce_bytes);
+    let new_encrypted_vault_key = cipher.encrypt(new_nonce, &*vault_key).map_err(|e| e.to_string())?;
+
+    // 3. 새로운 [솔트] + [논스] + [암호화된 마스터 키] 형태로 파일 덮어쓰기
+    let mut final_data = Vec::new();
+    final_data.extend_from_slice(&new_salt_bytes);
+    final_data.extend_from_slice(&new_nonce_bytes);
+    final_data.extend_from_slice(&new_encrypted_vault_key);
+
+    fs::write(vault_path, final_data).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![encrypt_file, decrypt_file, secure_delete_file])
+        .manage(Vault { key: Default::default() })
+        .invoke_handler(tauri::generate_handler![
+            vault_exists,
+            create_vault,
+            unlock_vault,
+            encrypt_file, 
+            decrypt_file, 
+            change_password,
+            // secure_open_file,
+            secure_delete_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

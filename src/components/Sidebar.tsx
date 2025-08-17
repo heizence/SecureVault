@@ -15,7 +15,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activePage, onNavigate }) => {
         <ul>
           <li className={activePage === "files" ? "active" : ""}>
             <a href="#" onClick={() => onNavigate("files")}>
-              Encrypted Files
+              Handle Files
             </a>
           </li>
           <li className={activePage === "settings" ? "active" : ""}>
