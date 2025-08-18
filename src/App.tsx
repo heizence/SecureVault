@@ -304,6 +304,7 @@ const App: React.FC = () => {
                 {activeTab === "encrypt" && (
                   <div>
                     <FileSelector
+                      type={0}
                       onAddFiles={() => handleAddFiles()}
                       onAddFolder={handleAddFolder}
                     />
@@ -328,6 +329,7 @@ const App: React.FC = () => {
                 {activeTab === "decrypt" && (
                   <div>
                     <FileSelector
+                      type={1}
                       onAddFiles={() => handleAddFiles()}
                       onAddFolder={handleAddFolder}
                     />
@@ -352,6 +354,7 @@ const App: React.FC = () => {
                 {activeTab === "delete" && (
                   <div>
                     <FileSelector
+                      type={2}
                       onAddFiles={() => handleAddFiles()}
                       onAddFolder={handleAddFolder}
                     />
