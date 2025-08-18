@@ -29,10 +29,10 @@ export default function InputDialog({
         />
         <div className="dialog-actions">
           <button onClick={onClose} className="dialog-button cancel">
-            취소
+            Cancel
           </button>
           <button onClick={handleSubmit} className="dialog-button confirm">
-            확인
+            Confirm
           </button>
         </div>
       </div>

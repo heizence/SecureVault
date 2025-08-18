@@ -18,6 +18,7 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use walkdir::WalkDir; 
 
 // 마스터 키를 메모리에 안전하게 보관할 구조체 정의
 // Mutex를 사용하여 여러 스레드에서 동시에 접근해도 안전하도록 합니다.
@@ -133,6 +134,18 @@ fn unlock_vault(app: tauri::AppHandle, password: String, vault_state: tauri::Sta
     // 4. 성공 시, 마스터 키를 Tauri 상태(State)에 저장
     *vault_state.key.lock().unwrap() = Some(*vault_key);
     Ok(())
+}
+
+/******************* 폴더 내 모든 파일 경로를 가져오기 ******************/
+#[tauri::command]
+fn get_files_in_dir_recursive(dir_path: String) -> Result<Vec<String>, String> {
+    let mut files = Vec::new();
+    for entry in WalkDir::new(dir_path).into_iter().filter_map(|e| e.ok()) {
+        if entry.file_type().is_file() {
+            files.push(entry.path().to_string_lossy().to_string());
+        }
+    }
+    Ok(files)
 }
 
 /******************* 암호화 함수 ******************/
@@ -265,6 +278,7 @@ async fn decrypt_files_with_progress(
     app: tauri::AppHandle,
     vault: State<'_, Vault>,
     files: Vec<String>,
+    destination_dir: String,
     op_state: State<'_, OperationState>,
 ) -> Result<(), String> {
     let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
@@ -287,8 +301,12 @@ async fn decrypt_files_with_progress(
             let decrypted_data = cipher.decrypt(nonce, encrypted_data)
                 .map_err(|_| "Decryption failed. File may be corrupt.".to_string())?;
 
-            let dest_path_str = file_path.strip_suffix(".enc").ok_or("Invalid filename")?;
-            fs::write(dest_path_str, decrypted_data).map_err(|e| e.to_string())?;
+              // --- 수정: 저장 경로 로직 변경 ---
+            let source_filename = Path::new(&file_path)
+                .file_name().unwrap().to_str().unwrap()
+                .strip_suffix(".enc").unwrap();
+            let dest_path = Path::new(&destination_dir).join(source_filename);
+            fs::write(dest_path, decrypted_data).map_err(|e| e.to_string())?;
 
             Ok(())
         })();
@@ -389,7 +407,7 @@ fn change_password(app: tauri::AppHandle, old_password: String, new_password: St
 
         let cipher = Aes256Gcm::new(kek);
         cipher.decrypt(nonce, encrypted_vault_key)
-            .map_err(|_| "Password change failed. Old password was incorrect.".to_string())?
+            .map_err(|_| "Password change failed. Old password is incorrect.".to_string())?
     };
 
     // 2. 새로운 비밀번호로 마스터 키 재암호화
@@ -431,6 +449,7 @@ fn main() {
             vault_exists,
             create_vault,
             unlock_vault,
+            get_files_in_dir_recursive,
             encrypt_files, 
             decrypt_files, 
             encrypt_files_with_progress,            
