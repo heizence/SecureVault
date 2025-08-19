@@ -72,12 +72,12 @@ xattr -cr /Applications/SecureVault.app
 #### 저장소를 로컬 컴퓨터에 복제(clone)
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/heizence/Secure-vault.git
 ```
 
 #### 프로젝트 폴더로 이동
 ```bash
-cd secure-vault
+cd SecureVault
 ```
 
 #### 의존성 설치
