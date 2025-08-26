@@ -5,7 +5,31 @@
 
 모든 암호화 작업은 사용자의 마스터 비밀번호로 보호되는 마스터 키(Vault Key) 아키텍처를 기반으로 합니다. 이를 통해 수많은 파일을 효율적으로 관리하고 비밀번호를 즉시 변경할 수 있으며, 대용량 파일 처리 시에도 진행률 표시 및 작업 취소 기능을 제공하여 높은 수준의 보안성과 사용자 경험을 모두 만족시키는 것을 목표로 합니다.
 
-## 2. 주요 기능
+## 2. 다운로드
+설치 파일을 아래 링크에서 다운로드하여 바로 사용할 수 있습니다.
+
+- **[macOS(.dmg)](https://github.com/heizence/Secure-vault/releases/download/0.1.0/SecureVault_0.1.0_aarch64.dmg)**
+
+- **[Windows (.msi)]()**
+
+<br/>
+
+**macOS 에 설치시 참고** 
+
+앱이 Apple에 의해 공식적으로 서명되지 않았기 때문에, 처음 실행 시 "손상되어 열 수 없습니다" 라는 오류가 발생할 수 있습니다. 
+
+아래 절차에 따라 앱을 실행해주세요.
+
+1. 다운로드한 .dmg 파일을 열고, `SecureVault.app`을 **응용 프로그램(Applications)** 폴더로 옮겨 설치합니다.
+2. 터미널을 열고 아래 명령어를 정확히 입력합니다.
+
+```bash
+xattr -cr /Applications/SecureVault.app
+```
+
+3. 이제 응용 프로그램 폴더에서 앱을 정상적으로 실행할 수 있습니다.
+
+## 3. 주요 기능
 
 ### 🔑 보안 저장소(Vault) 관리
 
@@ -24,7 +48,7 @@
 - 복호화 (Decrypt) : 준비된 .enc 파일들을 지정된 폴더에 원본 형태로 복원합니다.
 - 보안 삭제 (Secure Deletion) : 준비된 파일들을 디스크 상에서 무작위 데이터로 덮어쓴 후 삭제하여, 복구 프로그램으로도 되살릴 수 없도록 영구적으로 제거합니다.
 
-## 3. 기술 스택
+## 4. 기술 스택
 
 - Framework: Tauri
 - Frontend: React, TypeScript, Vite
@@ -35,7 +59,7 @@
 - 암호화: aes-gcm (AES-256-GCM), argon2 (키 유도)
 - 파일 시스템: walkdir (폴더 재귀 탐색)
 
-## 4. 시작하기
+## 5. 시작하기
 
 ### 사전 요구사항
 
@@ -45,18 +69,18 @@
 
 ### 설치 및 실행
 
-#### 1. 저장소를 로컬 컴퓨터에 복제(clone)
+#### 저장소를 로컬 컴퓨터에 복제(clone)
 
 ```bash
-git clone <your-repository-url>
+git clone https://github.com/heizence/SecureVault.git
 ```
 
-#### 2. 프로젝트 폴더로 이동
+#### 프로젝트 폴더로 이동
 ```bash
-cd secure-vault
+cd SecureVault
 ```
 
-#### 3. 의존성 설치
+#### 의존성 설치
 
 프로젝트에 필요한 모든 npm 패키지와 Rust crate를 설치합니다.
 
@@ -64,7 +88,7 @@ cd secure-vault
 npm install
 ```
 
-#### 4. 실행
+#### 실행
 
 개발 모드로 애플리케이션을 실행합니다.
 
@@ -78,12 +102,14 @@ npm run tauri dev
 
 프로젝트 WIKI 페이지에 들어가면 더 많은 내용을 볼 수 있습니다.
 
-### 1. 아키텍처 다이어그램
+### 1. 아키텍처 설계
 
 - 마스터 키 아키텍처 흐름도: 사용자의 비밀번호, vault.key 파일, 그리고 실제 파일 암호화에 사용되는 마스터 키 간의 관계를 시각적으로 설명합니다.
 - 컴포넌트 구조도: React 프론트엔드의 주요 컴포넌트(App, FileSelector, ProgressDialog 등)들이 어떻게 상호작용하는지 보여줍니다.
 
-### 2. 보안 설계 원칙
+### 2. 보안 원칙
 
 - 암호화 알고리즘 선택 이유: 왜 AES-256-GCM과 Argon2를 선택했는지, 각 알고리즘의 장점과 보안상 이점을 기술합니다.
 - 보안 삭제 구현 방식: 파일을 덮어쓰는 방식과 그 의미에 대해 설명합니다.
+
+더 자세한 내용은 [WIKI 문서](https://github.com/heizence/SecureVault/wiki)를 참고해 주세요.
