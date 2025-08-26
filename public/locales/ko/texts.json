@@ -1,0 +1,92 @@
+{
+  "sidebar": {
+    "encrypt": "암호화",
+    "decrypt": "복호화",
+    "secureDelete": "보안 삭제",
+    "settings": "설정"
+  },
+  "encrypt": {
+    "title": "파일 암호화",
+    "subtext": "암호화할 파일 또는 파일이 포함된 폴더를 선택하세요.",
+    "button": "암호화 시작"
+  },
+  "decrypt": {
+    "title": "파일 복호화",
+    "subtext": "복호화할 파일 또는 파일이 포함된 폴더를 선택하세요.",
+    "button": "복호화 시작"
+  },
+  "delete": {
+    "title": "파일 보안 삭제",
+    "subtext": "영구적으로 삭제할 파일 또는 파일이 포함된 폴더를 선택하세요.",
+    "button": "영구 삭제"
+  },
+  "fileSelector": {
+    "addFiles": "파일 추가",
+    "addFolder": "폴더 추가"
+  },
+  "stagedFiles": {
+    "ready": "{{count}}개의 파일이 준비됨",
+    "clearAll": "전체 삭제"
+  },
+  "progress": {
+    "processing": "처리 중...",
+    "complete": "작업 완료!",
+    "processedAll": "모든 파일 처리 완료!",
+    "cancel": "취소",
+    "confirm": "확인"
+  },
+  "setup": {
+    "title": "보안 저장소 생성",
+    "prompt": "파일을 보호할 마스터 비밀번호를 선택하세요.",
+    "placeholder1": "마스터 비밀번호",
+    "placeholder2": "비밀번호 확인",
+    "button": "저장소 생성",
+    "successMessage": "저장소가 성공적으로 생성되었습니다! 앱을 다시 시작합니다."
+  },
+  "unlock": {
+    "prompt": "잠금 해제를 위해 마스터 비밀번호를 입력하세요.",
+    "placeholder": "마스터 비밀번호",
+    "button": "잠금 해제"
+  },
+  "settings": {
+    "title": "설정",
+    "changePassword": "마스터 비밀번호 변경",
+    "currentPassword": "현재 비밀번호",
+    "newPassword": "새 비밀번호",
+    "confirmPassword": "새 비밀번호 확인",
+    "button": "변경사항 저장",
+    "successMessage": "비밀번호가 성공적으로 변경되었습니다."
+  },
+  "passwordCheck": {
+    "veryWeak": "매우 약함",
+    "weak": "약함",
+    "fair": "보통",
+    "strong": "강함",
+    "veryStrong": "매우 강함"
+  },
+  "messages": {
+    "checking": "Vault 상태 확인중...",
+    "cancelSuccess": "작업이 취소되었습니다.",
+    "vaultCreatedSuccess": "Vault가 성공적으로 생성되었습니다. 앱을 재실행해 주세요.",
+    "changePasswordSuccess": "비밀번호가 성공적으로 변경되었습니다.",
+    "deleteSuccess": "{{count}}개의 파일이 안전하게 삭제되었습니다.",
+    "deleteConfirm": "정말로 {{count}}개의 파일을 영구적으로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다."
+  },
+  "instructions": {
+    "selectFiles": "파일 선택",
+    "selectFolder": "폴더 선택",
+    "selectFolderForSave": "결과물을 저장할 폴더를 선택해 주세요."
+  },
+  "error": {
+    "unlockFailed": "잠금 해제가 실패하였습니다. 비밀번호를 확인하세요.",
+    "noFilesToEncrypt": "먼저 암호화할 파일을 추가해주세요.",
+    "noFilesToDecrypt": "먼저 복호화할 파일을 추가해주세요.",
+    "noFilesToDelete": "먼저 삭제할 파일을 추가해주세요.",
+    "noFilesTitle": "파일 없음",
+    "passwordTooShort": "비밀번호는 8자 이상이어야 합니다.",
+    "passwordsNoMatch": "비밀번호가 일치하지 않습니다.",
+    "allFieldsRequired": "모든 필드를 입력해야 합니다.",
+    "oldPasswordNoMatch": "이전 비밀번호가 일치하지 않습니다.",
+    "operationFailed": "작업 실패"
+  }
+}

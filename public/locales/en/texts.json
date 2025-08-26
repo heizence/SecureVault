@@ -1,0 +1,92 @@
+{
+  "sidebar": {
+    "encrypt": "Encrypt",
+    "decrypt": "Decrypt",
+    "secureDelete": "Secure Delete",
+    "settings": "Settings"
+  },
+  "encrypt": {
+    "title": "Encrypt Files",
+    "subtext": "Select files or a folder with files to encrypt.",
+    "button": "Start Encryption"
+  },
+  "decrypt": {
+    "title": "Decrypt Files",
+    "subtext": "Select files or a folder with files to decrypt.",
+    "button": "Start Decryption"
+  },
+  "delete": {
+    "title": "Secure Delete",
+    "subtext": "Select files or a folder with files to permanently delete.",
+    "button": "Delete Permanently"
+  },
+  "fileSelector": {
+    "addFiles": "Add Files",
+    "addFolder": "Add Folder"
+  },
+  "stagedFiles": {
+    "ready": "{{count}} file(s) ready",
+    "clearAll": "Clear All"
+  },
+  "progress": {
+    "processing": "Processing...",
+    "complete": "Operation Complete!",
+    "processedAll": "All files processed!",
+    "cancel": "Cancel",
+    "confirm": "Close"
+  },
+  "setup": {
+    "title": "Create Your Secure Vault",
+    "prompt": "Choose a master password to protect your files.",
+    "placeholder1": "Master Password",
+    "placeholder2": "Confirm Password",
+    "button": "Create Vault",
+    "successMessage": "Vault created successfully! The app will now reload."
+  },
+  "unlock": {
+    "prompt": "Enter your master password to unlock.",
+    "placeholder": "Master Password",
+    "button": "Unlock"
+  },
+  "settings": {
+    "title": "Settings",
+    "changePassword": "Change Master Password",
+    "currentPassword": "Current Password",
+    "newPassword": "New Password",
+    "confirmPassword": "Confirm New Password",
+    "button": "Save Changes",
+    "successMessage": "Your password has been changed successfully."
+  },
+  "passwordCheck": {
+    "veryWeak": "Very Weak",
+    "weak": "Weak",
+    "fair": "Fair",
+    "strong": "Strong",
+    "veryStrong": "Very Strong"
+  },
+  "messages": {
+    "checking": "Checking Vault status...",
+    "cancelSuccess": "Operation has been cancelled.",
+    "vaultCreatedSuccess": "Vault created successfully! Please reload the app.",
+    "changePasswordSuccess": "Your password has been changed successfully.",
+    "deleteSuccess": "{{count}} file(s) has been deleted securely.",
+    "deleteConfirm": "Are you sure you want to permanently delete {{count}} file(s)?\nThis action cannot be undone."
+  },
+  "instructions": {
+    "selectFiles": "Select files",
+    "selectFolder": "Select a folder",
+    "selectFolderForSave": "Select a folder to save outputs"
+  },
+  "error": {
+    "unlockFailed": "Unlock failed. Check your password.",
+    "noFilesToEncrypt": "Please add files to encrypt first.",
+    "noFilesToDecrypt": "Please add files to decrypt first.",
+    "noFilesToDelete": "Please add files to delete first.",
+    "noFilesTitle": "No Files",
+    "passwordTooShort": "Password must be at least 8 characters long.",
+    "passwordsNoMatch": "Passwords do not match.",
+    "allFieldsRequired": "All fields are required.",
+    "oldPasswordNoMatch": "Old password does not match.",
+    "operationFailed": "Operation Failed"
+  }
+}
