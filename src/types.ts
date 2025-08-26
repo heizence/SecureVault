@@ -1,1 +1,4 @@
-export type Page = "files" | "settings";
+export type Page = "encrypt" | "decrypt" | "delete" | "settings";
+export type StagedFile = {
+  path: string;
+};

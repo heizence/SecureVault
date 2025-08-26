@@ -1,52 +1,73 @@
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useTranslation } from "react-i18next";
+import LanguageSwitcher from "./LanguageSwitcher";
+import "./Setup.css";
 
 interface SetupProps {
   onSetupComplete: () => void;
 }
 
 const Setup: React.FC<SetupProps> = ({ onSetupComplete }) => {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [error, setError] = useState("");
+  const [errorKey, setErrorKey] = useState<string | null>(null);
 
   const handleCreateVault = async () => {
+    if (!password || !confirm) {
+      setErrorKey("error.allFieldsRequired");
+
+      return;
+    }
+
     if (password.length < 8) {
-      setError("Password must be at least 8 characters long.");
+      setErrorKey("error.passwordTooShort");
       return;
     }
     if (password !== confirm) {
-      setError("Passwords do not match.");
+      setErrorKey("error.passwordsNoMatch");
       return;
     }
     try {
       await invoke("create_vault", { password });
-      alert("Vault created successfully! The app will now reload.");
+      alert(t("messages.vaultCreatedSuccess"));
       onSetupComplete();
+      setErrorKey("");
     } catch (e) {
-      setError(String(e));
+      console.error(String(e));
+      setErrorKey("error.operationFailed");
     }
   };
 
   return (
-    <div className="unlock-container">
-      <div className="unlock-box">
-        <h1>Create Your Secure Vault</h1>
-        <p>Choose a master password to protect your files.</p>
+    <div className="setup-container">
+      <LanguageSwitcher isAbsolute={true} />
+      <div className="setup-box">
+        <h1>{t("setup.title")}</h1>
+        <p>{t("setup.prompt")}</p>
         <input
+          className="setup-input"
           type="password"
-          placeholder="Master Password"
+          placeholder={t("setup.placeholder1")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
         />
         <input
+          className="setup-input"
           type="password"
-          placeholder="Confirm Password"
+          placeholder={t("setup.placeholder2")}
           value={confirm}
           onChange={(e) => setConfirm(e.target.value)}
         />
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        <button onClick={handleCreateVault}>Create Vault</button>
+        {errorKey && (
+          <p style={{ color: "red" }} className="error-message">
+            {t(errorKey)}
+          </p>
+        )}
+        <button className="setup-button" onClick={handleCreateVault}>
+          {t("setup.button")}
+        </button>
       </div>
     </div>
   );

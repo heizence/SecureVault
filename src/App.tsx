@@ -3,23 +3,17 @@ import { invoke } from "@tauri-apps/api/core";
 import { open, message, ask } from "@tauri-apps/plugin-dialog";
 import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
+import { useTranslation } from "react-i18next";
 
+import { Page, StagedFile } from "./types";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import Settings from "./components/Settings";
 import Unlock from "./components/Unlock";
 import Setup from "./components/Setup";
 import ProgressDialog from "./components/ProgressDialog";
-import StagedFileList from "./components/StagedFileList";
-import { Page } from "./types";
+import AppEachContent from "./components/AppEachContent";
 import "./App.css";
-import FileSelector from "./components/FileSelector";
-
-type VaultState = "checking" | "needs_setup" | "locked" | "unlocked";
-
-interface StagedFile {
-  path: string;
-}
 
 interface ProgressPayload {
   status: string;
@@ -30,9 +24,12 @@ interface ProgressPayload {
 }
 
 const App: React.FC = () => {
-  const [vaultState, setVaultState] = useState<VaultState>("checking");
-  const [activePage, setActivePage] = useState<Page>("files");
-  const [activeTab, setActiveTab] = useState<"encrypt" | "decrypt" | "delete">("encrypt");
+  const { t } = useTranslation();
+
+  const [vaultState, setVaultState] = useState<"checking" | "needs_setup" | "locked" | "unlocked">(
+    "checking"
+  );
+  const [activePage, setActivePage] = useState<Page>("encrypt");
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const [progress, setProgress] = useState({
     isVisible: false,
@@ -46,7 +43,11 @@ const App: React.FC = () => {
   // --- 파일/폴더 추가 핸들러 ---
   const handleAddFiles = async (filter?: { name: string; extensions: string[] }[]) => {
     try {
-      const selected = await open({ multiple: true, filters: filter });
+      const selected = await open({
+        multiple: true,
+        title: t("instructions.selectFiles"),
+        filters: filter,
+      });
       if (Array.isArray(selected)) {
         handleFilesAdded(selected);
       }
@@ -57,9 +58,11 @@ const App: React.FC = () => {
 
   const handleAddFolder = async () => {
     try {
-      const selected = await open({ directory: true, title: "Select a folder" });
+      const selected = await open({
+        directory: true,
+        title: t("instructions.selectFolder"),
+      });
       if (typeof selected === "string") {
-        // Rust에 폴더 내 파일 목록을 요청합니다.
         const filesInDir = await invoke<string[]>("get_files_in_dir_recursive", {
           dirPath: selected,
         });
@@ -101,12 +104,12 @@ const App: React.FC = () => {
 
   const handleEncrypt = async () => {
     if (stagedFiles.length === 0) {
-      await message("먼저 암호화할 파일을 추가해주세요.", { title: "파일 없음" });
+      await message(t("error.noFilesEcrypt"), { title: t("error.noFilesTitle") });
       return;
     }
     try {
       const destDir = await open({
-        title: "Select a folder to save encrypted files",
+        title: t("instructions.selectFolderForSave"),
         directory: true,
       });
       if (typeof destDir !== "string") return;
@@ -116,18 +119,19 @@ const App: React.FC = () => {
       await invoke("encrypt_files_with_progress", { files: filePaths, destinationDir: destDir });
       setStagedFiles([]);
     } catch (error) {
-      await message(`Error: ${error}`);
+      console.error(error);
+      await message(t("error.operationFailed"));
     }
   };
 
   const handleDecrypt = async () => {
     if (stagedFiles.length === 0) {
-      await message("먼저 복호화할 파일을 추가해주세요.", { title: "파일 없음" });
+      await message(t("error.noFilesDecrypt"), { title: t("error.noFilesTitle") });
       return;
     }
     try {
       const destDir = await open({
-        title: "Select a folder to save decrypted files",
+        title: t("instructions.selectFolderForSave"),
         directory: true,
       });
       if (typeof destDir !== "string") return;
@@ -137,44 +141,50 @@ const App: React.FC = () => {
       await invoke("decrypt_files_with_progress", { files: filePaths, destinationDir: destDir });
       setStagedFiles([]);
     } catch (error) {
-      await message(`Error: ${error}`);
+      console.error(error);
+      await message(t("error.operationFailed"));
     }
   };
 
   const handleSecureDelete = async () => {
     if (stagedFiles.length === 0) {
-      await message("먼저 삭제할 파일을 추가해주세요.", { title: "파일 없음" });
+      await message(t("error.noFilesToDelete"), { title: t("error.noFilesTitle") });
       return;
     }
 
-    const confirmed = await ask(
-      `정말로 ${stagedFiles.length}개의 파일을 영구적으로 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`,
-      {
-        title: "보안 삭제 확인",
-        okLabel: "영구 삭제",
-        cancelLabel: "취소",
-      }
-    );
+    const confirmed = await ask(t("messages.deleteConfirm", { count: stagedFiles.length }), {
+      title: t("delete.title"),
+      okLabel: t("delete.button"),
+      cancelLabel: t("progress.cancel"),
+    });
 
     if (confirmed) {
       const filePaths = stagedFiles.map((f) => f.path);
       try {
-        // 보안 삭제는 진행률 표시 없이 순차적으로 실행합니다.
         for (const filePath of filePaths) {
           await invoke("secure_delete_file", { filePath });
         }
-        await message(`${filePaths.length}개의 파일이 안전하게 삭제되었습니다.`);
+        await message(t("messages.deleteSuccess", { count: filePaths.length }));
         setStagedFiles([]);
       } catch (error) {
-        await message(`Error: ${error}`);
+        console.error(error);
+        await message(t("error.operationFailed"));
       }
     }
+  };
+
+  // 컨텐츠 유형에 따라 실행할 매서드
+  const onButtonClickByType = () => {
+    if (activePage === "encrypt") return handleEncrypt();
+    else if (activePage === "decrypt") return handleDecrypt();
+    else if (activePage === "delete") return handleSecureDelete();
+    else return;
   };
 
   // 탭 변경 시 준비된 파일 목록 초기화
   useEffect(() => {
     setStagedFiles([]);
-  }, [activeTab]);
+  }, [activePage]);
 
   // --- 기존 핸들러 및 useEffect들 ---
   const handleUnlock = async (password: string) => {
@@ -198,7 +208,7 @@ const App: React.FC = () => {
       currentFileNumber: 0,
       totalProgress: 0,
     });
-    message("작업이 취소되었습니다.");
+    message(t("messages.cancelSuccess"));
   };
   const handleCloseProgress = () => {
     setProgress({
@@ -215,6 +225,7 @@ const App: React.FC = () => {
       .then((exists) => setVaultState(exists ? "locked" : "needs_setup"))
       .catch(console.error);
   }, []);
+
   useEffect(() => {
     const unlistenProgress = listen<ProgressPayload>("PROGRESS_EVENT", (event) => {
       const { status, current_file_path, total_files, current_file_number, total_progress } =
@@ -241,7 +252,7 @@ const App: React.FC = () => {
         currentFileNumber: 0,
         totalProgress: 0,
       });
-      message(`오류 발생: ${event.payload}`, { title: "작업 실패" });
+      message(`error : ${event.payload}`, { title: t("error.operationFailed") });
     });
     return () => {
       unlistenProgress.then((f) => f());
@@ -251,7 +262,7 @@ const App: React.FC = () => {
 
   // --- 화면 렌더링 로직 ---
   if (vaultState === "checking") {
-    return <div>Checking vault status...</div>;
+    return <div>{t("message.checking")}</div>;
   }
   if (vaultState === "needs_setup") {
     return <Setup onSetupComplete={relaunch} />;
@@ -277,109 +288,26 @@ const App: React.FC = () => {
       <div className="app-body">
         <Sidebar activePage={activePage} onNavigate={setActivePage} />
         <main className="app-content">
-          {activePage === "files" && (
-            <>
-              <div className="tab-nav">
-                <button
-                  className={`tab-button ${activeTab === "encrypt" ? "active" : ""}`}
-                  onClick={() => setActiveTab("encrypt")}
-                >
-                  암호화
-                </button>
-                <button
-                  className={`tab-button ${activeTab === "decrypt" ? "active" : ""}`}
-                  onClick={() => setActiveTab("decrypt")}
-                >
-                  복호화
-                </button>
-                <button
-                  className={`tab-button ${activeTab === "delete" ? "active" : ""}`}
-                  onClick={() => setActiveTab("delete")}
-                >
-                  보안 삭제
-                </button>
-              </div>
-
-              <div className="tab-content">
-                {activeTab === "encrypt" && (
-                  <div>
-                    <FileSelector
-                      type={0}
-                      onAddFiles={() => handleAddFiles()}
-                      onAddFolder={handleAddFolder}
-                    />
-
-                    <StagedFileList
-                      files={stagedFiles}
-                      onRemoveFile={handleRemoveFile}
-                      onClearAll={handleClearAllFiles}
-                    />
-                    <div className="action-footer">
-                      <button
-                        className="button-primary"
-                        onClick={handleEncrypt}
-                        disabled={stagedFiles.length === 0}
-                      >
-                        암호화 시작
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === "decrypt" && (
-                  <div>
-                    <FileSelector
-                      type={1}
-                      onAddFiles={() => handleAddFiles()}
-                      onAddFolder={handleAddFolder}
-                    />
-
-                    <StagedFileList
-                      files={stagedFiles}
-                      onRemoveFile={handleRemoveFile}
-                      onClearAll={handleClearAllFiles}
-                    />
-                    <div className="action-footer">
-                      <button
-                        className="button-primary"
-                        onClick={handleDecrypt}
-                        disabled={stagedFiles.length === 0}
-                      >
-                        복호화 시작
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {activeTab === "delete" && (
-                  <div>
-                    <FileSelector
-                      type={2}
-                      onAddFiles={() => handleAddFiles()}
-                      onAddFolder={handleAddFolder}
-                    />
-
-                    <StagedFileList
-                      files={stagedFiles}
-                      onRemoveFile={handleRemoveFile}
-                      onClearAll={handleClearAllFiles}
-                    />
-                    <div className="action-footer">
-                      <button
-                        className="button-primary"
-                        id="button-danger"
-                        onClick={handleSecureDelete}
-                        disabled={stagedFiles.length === 0}
-                      >
-                        선택 파일 영구 삭제
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </>
+          {activePage === "settings" ? (
+            <Settings />
+          ) : (
+            <AppEachContent
+              type={activePage}
+              stagedFiles={stagedFiles}
+              onAddFiles={() =>
+                handleAddFiles(
+                  activePage === "decrypt"
+                    ? [{ name: "Encrypted Files", extensions: ["enc"] }]
+                    : undefined
+                )
+              }
+              onAddFolder={handleAddFolder}
+              onRemoveFile={handleRemoveFile}
+              onClearAll={handleClearAllFiles}
+              onButtonClick={onButtonClickByType}
+              disabled={stagedFiles.length === 0}
+            />
           )}
-          {activePage === "settings" && <Settings />}
         </main>
       </div>
     </div>

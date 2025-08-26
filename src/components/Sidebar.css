@@ -1,18 +1,16 @@
-/* src/components/Sidebar.css */
 .app-sidebar {
   /* 화면 왼쪽에 고정 */
   position: fixed;
-  top: 60px; /* 헤더 높이(60px) 아래부터 시작 */
+  top: 81px; /* 헤더 높이(81px) 아래부터 시작 */
   left: 0;
   bottom: 0;
   z-index: 900;
-
-  background-color: #f8f9fa; /* 배경색 연하게 변경 */
+  background-color: #f8f9fa;
   padding: 20px;
   width: 200px;
-  border-right: 1px solid #e0e0e0; /* 경계선 색상 연하게 */
+  border-right: 1px solid #e0e0e0;
   height: calc(100vh - 60px); /* 헤더를 제외한 전체 높이 */
-  box-sizing: border-box; /* 패딩이 너비에 영향을 주지 않도록 */
+  box-sizing: border-box;
 }
 
 .app-sidebar .sidebar-header {
@@ -20,18 +18,15 @@
   font-weight: bold;
   margin-bottom: 15px;
 }
-
 .app-sidebar .sidebar-nav ul {
   list-style: none;
   padding: 0;
   margin: 0;
 }
-
 .app-sidebar .sidebar-nav ul li {
   padding: 10px 0;
   border-radius: 4px;
 }
-
 .app-sidebar .sidebar-nav ul li a {
   text-decoration: none;
   color: #333;

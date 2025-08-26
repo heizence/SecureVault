@@ -1,58 +1,38 @@
-/* src/components/Header.css */
+/******************* 전체 영역 ******************/
 .app-header {
-  /* 화면 상단에 고정 */
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   z-index: 1000; /* 다른 요소들 위에 표시되도록 */
-
-  background-color: #ffffff; /* 배경색을 흰색으로 변경 */
-  padding: 20px;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #e0e0e0; /* 경계선 색상 연하게 */
-  height: 60px; /* 헤더 높이를 60px로 고정 */
-  box-sizing: border-box; /* 패딩이 높이에 영향을 주지 않도록 */
+  padding: 10px 24px;
+  height: 60px;
+  background-color: #fff;
+  border-bottom: 1px solid #e5e7eb;
 }
-
-.app-header .logo {
-  font-size: 20px;
+.logo {
+  font-size: 2rem;
   font-weight: bold;
   cursor: pointer;
 }
 
-.app-header .main-nav ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-  display: flex;
-}
-
-.app-header .main-nav ul li {
-  margin-left: 20px;
-}
-
-.app-header .main-nav ul li a {
-  text-decoration: none;
-  color: #333;
-}
-
-.app-header .user-info {
+/******************* 우측 버튼 영역 ******************/
+.header-actions {
   display: flex;
   align-items: center;
+  gap: 1.5rem;
 }
-
-.app-header .user-info span {
-  margin-right: 20px;
-  font-size: 20px;
-  font-weight: bold;
+.user-info {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
 }
-
-.app-header .button {
+.lock-button {
   width: 100%;
-  padding: 12px 20px;
+  padding: 10px 20px;
   background-color: #007bff;
   color: white;
   border: none;
@@ -61,6 +41,6 @@
   font-size: 16px;
 }
 
-.app-header button:hover {
+.lock-button:hover {
   background-color: #0056b3;
 }

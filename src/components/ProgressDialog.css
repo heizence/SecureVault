@@ -10,11 +10,7 @@
   align-items: center;
   z-index: 2000;
   color: #333;
-
-  /* --- 핵심 수정: 시스템 기본 폰트를 사용하여 한글 렌더링 개선 --- */
-  /* font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; */
 }
-
 .progress-box {
   background: white;
   padding: 2rem;
@@ -24,13 +20,11 @@
   text-align: center;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
 }
-
 .progress-box h2 {
   margin-top: 0;
   margin-bottom: 1rem;
   font-size: 1.5rem;
 }
-
 .filename {
   font-size: 0.9rem;
   color: #666;
@@ -43,10 +37,12 @@
   text-overflow: ellipsis;
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   word-break: break-all;
 }
 
+/******************* progress bar ******************/
 .progress-bar-container {
   width: 100%;
   height: 12px;
@@ -55,7 +51,6 @@
   overflow: hidden;
   margin-bottom: 0.5rem;
 }
-
 .progress-bar {
   height: 100%;
   background-color: #3498db;
@@ -63,13 +58,13 @@
   transition: width 0.2s ease-in-out;
   border-radius: 6px;
 }
-
 .progress-percentage {
   font-weight: bold;
   font-size: 1.1rem;
   margin-bottom: 1.5rem;
 }
 
+/******************* Dialog ******************/
 .dialog-button {
   padding: 0.6rem 1.5rem;
   border: none;
@@ -79,14 +74,12 @@
   font-size: 1rem;
   transition: background-color 0.2s;
 }
-
 .dialog-button.cancel {
   background-color: #e5e7eb;
 }
 .dialog-button.cancel:hover {
   background-color: #d1d5db;
 }
-
 .dialog-button.confirm {
   background-color: #28a745;
   color: white;

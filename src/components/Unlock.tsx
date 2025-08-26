@@ -1,4 +1,6 @@
 import React, { useState } from "react";
+import { useTranslation } from "react-i18next";
+import LanguageSwitcher from "./LanguageSwitcher";
 import "./Unlock.css";
 
 interface UnlockProps {
@@ -6,31 +8,39 @@ interface UnlockProps {
 }
 
 const Unlock: React.FC<UnlockProps> = ({ onUnlock }) => {
+  const { t } = useTranslation();
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [errorKey, setErrorKey] = useState<string | null>(null);
 
   const handleUnlockClick = async () => {
+    setErrorKey(""); // 이전 에러 메시지 초기화
+
     try {
       await onUnlock(password);
     } catch (e) {
-      setError(String(e));
+      console.error(String(e));
+      setErrorKey("error.operationFailed");
     }
   };
 
   return (
     <div className="unlock-container">
+      <LanguageSwitcher isAbsolute={true} />
       <div className="unlock-box">
-        <h1>Secure Vault</h1>
-        <p>Enter your master password to unlock.</p>
+        <h1>SecureVault</h1>
+        <p>{t("unlock.prompt")}</p>
         <input
           type="password"
-          placeholder="Master Password"
+          className="unlock-input"
+          placeholder={t("unlock.placeholder")}
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && handleUnlockClick()}
         />
-        {error && <p style={{ color: "red" }}>{error}</p>}
-        <button onClick={handleUnlockClick}>Unlock</button>
+        {errorKey && <p className="error-message">{t(errorKey)}</p>}
+        <button className="unlock-button" onClick={handleUnlockClick}>
+          {t("unlock.button")}
+        </button>
       </div>
     </div>
   );
