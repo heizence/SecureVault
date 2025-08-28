@@ -5,7 +5,7 @@ import LanguageSwitcher from "./LanguageSwitcher";
 import "./Setup.css";
 
 interface SetupProps {
-  onSetupComplete: () => void;
+  onSetupComplete: (password: string) => void;
 }
 
 const Setup: React.FC<SetupProps> = ({ onSetupComplete }) => {
@@ -31,8 +31,8 @@ const Setup: React.FC<SetupProps> = ({ onSetupComplete }) => {
     }
     try {
       await invoke("create_vault", { password });
+      onSetupComplete(password);
       alert(t("messages.vaultCreatedSuccess"));
-      onSetupComplete();
       setErrorKey("");
     } catch (e) {
       console.error(String(e));

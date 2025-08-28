@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { open, message, ask } from "@tauri-apps/plugin-dialog";
-import { relaunch } from "@tauri-apps/plugin-process";
 import { listen } from "@tauri-apps/api/event";
 import { useTranslation } from "react-i18next";
 
@@ -39,8 +38,26 @@ const App: React.FC = () => {
     currentFileNumber: 0,
     totalProgress: 0,
   });
+  const [isCancelling, setIsCancelling] = useState(false); // 취소 상태를 관리
 
-  // --- 파일/폴더 추가 핸들러 ---
+  const handleLock = () => {
+    setVaultState("locked");
+  };
+
+  const handleUnlock = async (password: string) => {
+    try {
+      await invoke("unlock_vault", { password });
+      setVaultState("unlocked");
+    } catch (e) {
+      throw e;
+    }
+  };
+
+  // 설정 완료 핸들러
+  const handleSetupSuccess = () => {
+    setVaultState("unlocked");
+  };
+
   const handleAddFiles = async (filter?: { name: string; extensions: string[] }[]) => {
     try {
       const selected = await open({
@@ -63,9 +80,28 @@ const App: React.FC = () => {
         title: t("instructions.selectFolder"),
       });
       if (typeof selected === "string") {
-        const filesInDir = await invoke<string[]>("get_files_in_dir_recursive", {
+        let filesInDir = await invoke<string[]>("get_files_in_dir_recursive", {
           dirPath: selected,
         });
+
+        if (filesInDir.length === 0) {
+          await message(t("error.noFilesDesc"), {
+            title: t("error.noFilesTitle"),
+          });
+          return;
+        }
+
+        // 복호화 탭일 경우 .enc 파일만 필터링
+        if (activePage === "decrypt") {
+          filesInDir = filesInDir.filter((file) => file.endsWith(".enc"));
+          if (filesInDir.length === 0) {
+            await message(t("error.noEncFiles"), {
+              title: t("error.noFilesTitle"),
+            });
+            return;
+          }
+        }
+
         handleFilesAdded(filesInDir);
       }
     } catch (error) {
@@ -90,8 +126,8 @@ const App: React.FC = () => {
     setStagedFiles([]);
   };
 
-  // --- 작업 실행 핸들러 ---
   const startOperation = (initialFileName: string, totalFiles: number) => {
+    setIsCancelling(false); // 새로운 작업을 시작하기 전에 취소 상태를 리셋
     setProgress({
       isVisible: true,
       status: "processing",
@@ -116,7 +152,7 @@ const App: React.FC = () => {
 
       const filePaths = stagedFiles.map((f) => f.path);
       startOperation(filePaths[0], filePaths.length);
-      await invoke("encrypt_files_with_progress", { files: filePaths, destinationDir: destDir });
+      await invoke("encrypt_files", { files: filePaths, destinationDir: destDir });
       setStagedFiles([]);
     } catch (error) {
       console.error(error);
@@ -138,7 +174,7 @@ const App: React.FC = () => {
 
       const filePaths = stagedFiles.map((f) => f.path);
       startOperation(filePaths[0], filePaths.length);
-      await invoke("decrypt_files_with_progress", { files: filePaths, destinationDir: destDir });
+      await invoke("decrypt_files", { files: filePaths, destinationDir: destDir });
       setStagedFiles([]);
     } catch (error) {
       console.error(error);
@@ -161,11 +197,10 @@ const App: React.FC = () => {
     if (confirmed) {
       const filePaths = stagedFiles.map((f) => f.path);
       try {
-        for (const filePath of filePaths) {
-          await invoke("secure_delete_file", { filePath });
-        }
-        await message(t("messages.deleteSuccess", { count: filePaths.length }));
-        setStagedFiles([]);
+        // --- 수정: 진행률 표시 시작 및 새로운 커맨드 호출 ---
+        startOperation(filePaths[0], filePaths.length);
+        await invoke("secure_delete_files", { files: filePaths });
+        setStagedFiles([]); // 작업 시작 후 목록 비우기
       } catch (error) {
         console.error(error);
         await message(t("error.operationFailed"));
@@ -181,24 +216,10 @@ const App: React.FC = () => {
     else return;
   };
 
-  // 탭 변경 시 준비된 파일 목록 초기화
-  useEffect(() => {
-    setStagedFiles([]);
-  }, [activePage]);
-
-  // --- 기존 핸들러 및 useEffect들 ---
-  const handleUnlock = async (password: string) => {
-    try {
-      await invoke("unlock_vault", { password });
-      setVaultState("unlocked");
-    } catch (e) {
-      throw e;
-    }
-  };
-  const handleLock = () => {
-    setVaultState("locked");
-  };
   const handleCancel = async () => {
+    // 즉시 취소 상태로 변경하여 이후의 이벤트를 차단합니다.
+    setIsCancelling(true);
+
     await invoke("cancel_operation");
     setProgress({
       isVisible: false,
@@ -210,6 +231,7 @@ const App: React.FC = () => {
     });
     message(t("messages.cancelSuccess"));
   };
+
   const handleCloseProgress = () => {
     setProgress({
       isVisible: false,
@@ -220,6 +242,11 @@ const App: React.FC = () => {
       totalProgress: 0,
     });
   };
+
+  useEffect(() => {
+    setStagedFiles([]);
+  }, [activePage]);
+
   useEffect(() => {
     invoke<boolean>("vault_exists")
       .then((exists) => setVaultState(exists ? "locked" : "needs_setup"))
@@ -228,6 +255,9 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const unlistenProgress = listen<ProgressPayload>("PROGRESS_EVENT", (event) => {
+      // isCancelling 상태가 true이면, 모든 진행률 이벤트를 무시합니다.
+      if (isCancelling) return;
+
       const { status, current_file_path, total_files, current_file_number, total_progress } =
         event.payload;
       if (status === "done") {
@@ -243,7 +273,9 @@ const App: React.FC = () => {
         });
       }
     });
+
     const unlistenError = listen<string>("ERROR_EVENT", (event) => {
+      if (isCancelling) return; // 취소 중에는 에러 메시지도 무시
       setProgress({
         isVisible: false,
         status: "processing",
@@ -252,20 +284,23 @@ const App: React.FC = () => {
         currentFileNumber: 0,
         totalProgress: 0,
       });
-      message(`error : ${event.payload}`, { title: t("error.operationFailed") });
+      message(t("error.operationFailedMessage", { error: event.payload }), {
+        title: t("error.operationFailed"),
+      });
     });
+
     return () => {
       unlistenProgress.then((f) => f());
       unlistenError.then((f) => f());
     };
-  }, []);
+  }, [isCancelling]); // isCancelling이 변경될 때 리스너가 최신 상태를 참조하도록 합니다.
 
-  // --- 화면 렌더링 로직 ---
+  // --- 화면 렌더링 로직
   if (vaultState === "checking") {
     return <div>{t("message.checking")}</div>;
   }
   if (vaultState === "needs_setup") {
-    return <Setup onSetupComplete={relaunch} />;
+    return <Setup onSetupComplete={handleSetupSuccess} />;
   }
   if (vaultState === "locked") {
     return <Unlock onUnlock={handleUnlock} />;
