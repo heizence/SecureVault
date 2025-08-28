@@ -40,8 +40,7 @@
     "prompt": "Choose a master password to protect your files.",
     "placeholder1": "Master Password",
     "placeholder2": "Confirm Password",
-    "button": "Create Vault",
-    "successMessage": "Vault created successfully! The app will now reload."
+    "button": "Create Vault"
   },
   "unlock": {
     "prompt": "Enter your master password to unlock.",
@@ -67,7 +66,7 @@
   "messages": {
     "checking": "Checking Vault status...",
     "cancelSuccess": "Operation has been cancelled.",
-    "vaultCreatedSuccess": "Vault created successfully! Please reload the app.",
+    "vaultCreatedSuccess": "Vault created successfully!",
     "changePasswordSuccess": "Your password has been changed successfully.",
     "deleteSuccess": "{{count}} file(s) has been deleted securely.",
     "deleteConfirm": "Are you sure you want to permanently delete {{count}} file(s)?\nThis action cannot be undone."
@@ -83,6 +82,8 @@
     "noFilesToDecrypt": "Please add files to decrypt first.",
     "noFilesToDelete": "Please add files to delete first.",
     "noFilesTitle": "No Files",
+    "noEncFiles": "No encrypted (.enc) files found in the selected folder.",
+    "noFilesDesc": "No files found in the selected folder.",
     "passwordTooShort": "Password must be at least 8 characters long.",
     "passwordsNoMatch": "Passwords do not match.",
     "allFieldsRequired": "All fields are required.",
