@@ -83,3 +83,66 @@
   background-color: #9ca3af;
   cursor: not-allowed;
 }
+
+/********** 파일 List *********/
+.staged-files-container {
+  margin-bottom: 1.5rem;
+}
+.staged-files-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+  padding: 0 0.5rem;
+}
+.staged-files-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: #4b5563;
+}
+.clear-all-button {
+  background: none;
+  border: none;
+  color: #ef4444;
+  cursor: pointer;
+  font-weight: 500;
+  padding: 0.25rem;
+}
+.staged-files-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 0.5rem;
+}
+.staged-file-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #e5e7eb;
+  background-color: #fff;
+}
+.staged-file-item:last-child {
+  border-bottom: none;
+}
+.file-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9rem;
+}
+.remove-file-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  color: #9ca3af;
+  padding: 0 0.5rem;
+}
+.remove-file-button:hover {
+  color: #374151;
+}
