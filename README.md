@@ -1,4 +1,4 @@
-# Secure Vault - 로컬 파일 암호화 애플리케이션
+# SecureVault - 로컬 파일 암호화 애플리케이션
 
 ## 1. 개요
 본 프로젝트는 Tauri, React, Rust를 사용하여 구현한 크로스플랫폼 데스크톱 파일 암호화 애플리케이션입니다. 사용자의 로컬 컴퓨터에 있는 파일과 폴더를 강력한 암호화 알고리즘으로 안전하게 보호하고, 복구 불가능하도록 영구 삭제하는 기능을 제공합니다.
@@ -9,8 +9,6 @@
 설치 파일을 아래 링크에서 다운로드하여 바로 사용할 수 있습니다.
 
 - **[macOS(.dmg)](https://github.com/heizence/Secure-vault/releases/download/0.1.0/SecureVault_0.1.0_aarch64.dmg)**
-
-- **[Windows (.msi)]()**
 
 <br/>
 
