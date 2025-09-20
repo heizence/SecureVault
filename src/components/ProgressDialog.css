@@ -16,7 +16,7 @@
   padding: 2rem;
   border-radius: 12px;
   width: 90%;
-  max-width: 450px;
+  max-width: 700px;
   text-align: center;
   box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
 }
@@ -76,6 +76,7 @@
 }
 .dialog-button.cancel {
   background-color: #e5e7eb;
+  margin-right: 10px;
 }
 .dialog-button.cancel:hover {
   background-color: #d1d5db;

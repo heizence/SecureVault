@@ -21,7 +21,7 @@ use std::sync::{Arc, Mutex};
 use walkdir::WalkDir; 
 
 // 마스터 키를 메모리에 안전하게 보관할 구조체 정의
-// Mutex를 사용하여 여러 스레드에서 동시에 접근해도 안전하도록 합니다.
+// Mutex를 사용하여 여러 스레드에서 동시에 접근해도 안전하도록 처리
 pub struct Vault {
     key: Mutex<Option<Key<Aes256Gcm>>>,
 }
@@ -36,9 +36,20 @@ pub struct OperationState {
 struct ProgressPayload {
     status: String,
     current_file_path: String,
-    total_files: usize,
+    number_of_files: usize,
     current_file_number: usize,
     total_progress: f64, // 전체 진행률 (0.0 ~ 1.0)
+    total_files: Option<Vec<String>>,
+    suceeded_files: Option<Vec<EachFile>>,
+    failed_files: Option<Vec<EachFile>>
+}
+
+// 작업 결과 요약 구조체
+#[derive(Clone, serde::Serialize)]
+
+struct EachFile {
+    path: String,
+    error: Option<String>
 }
 
 /******************* 앱 설정 파일 경로를 가져오는 헬퍼 함수 ******************/
@@ -163,27 +174,25 @@ async fn encrypt_files(
     let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
     op_state.is_cancelled.store(false, Ordering::SeqCst);
     let cancel_flag = op_state.is_cancelled.clone();
-    let total_files = files.len();
+    
+    let number_of_files = files.len();
+    let total_files = files.clone();
+    let mut suceeded_files = Vec::new();
+    let mut failed_files = Vec::new();
 
     for (index, file_path) in files.into_iter().enumerate() {
         if cancel_flag.load(Ordering::SeqCst) { break; }
 
-        // --- 하이라이트: 파일 처리 로직 시작 ---
-        // 각 파일을 처리하기 위한 즉시 실행 클로저
         let result: Result<(), String> = (|| {
-            // 1. 파일 전체를 메모리로 읽습니다.
             let original_data = fs::read(&file_path).map_err(|e| e.to_string())?;
 
-            // 2. 새로운 논스를 생성합니다.
             let mut nonce_bytes = [0u8; 12];
             rand::rng().fill_bytes(&mut nonce_bytes);
             let nonce = Nonce::from_slice(&nonce_bytes);
             
-            // 3. 단 한 번의 암호화 작업을 수행합니다.
             let cipher = Aes256Gcm::new(&vault_key);
             let encrypted_data = cipher.encrypt(nonce, original_data.as_ref()).map_err(|e| e.to_string())?;
 
-            // 4. [논스] + [암호화된 데이터]를 파일에 씁니다.
             let mut final_data = Vec::new();
             final_data.extend_from_slice(&nonce_bytes);
             final_data.extend_from_slice(&encrypted_data);
@@ -194,29 +203,34 @@ async fn encrypt_files(
 
             Ok(())
         })();
-        // --- 하이라이트: 파일 처리 로직 끝 ---
 
-        if let Err(e) = result {
-            app.emit("ERROR_EVENT", e.to_string()).unwrap();
-            return Ok(());
+        match result {
+            Ok(_) => suceeded_files.push(EachFile { path: file_path.clone(), error: None }),
+            Err(e) => failed_files.push(EachFile { path: file_path.clone(), error: Some(e) }),
         }
-        // 파일 하나 처리가 끝날 때마다 진행률을 업데이트합니다.
+
         app.emit("PROGRESS_EVENT", ProgressPayload {
-            status: "processing".to_string(),
+            status: "PROCESSING".to_string(),
             current_file_path: file_path.clone(),
-            total_files,
+            number_of_files,
             current_file_number: index + 1,
-            total_progress: (index + 1) as f64 / total_files as f64,
+            total_progress: (index + 1) as f64 / number_of_files as f64,
+            total_files: None,
+            suceeded_files: None,
+            failed_files: None,
         }).unwrap();
     }
       
     if !cancel_flag.load(Ordering::SeqCst) {
         app.emit("PROGRESS_EVENT", ProgressPayload { 
-            status: "done".to_string(),
+            status: "DONE".to_string(),
             current_file_path: "Done".to_string(), 
-            total_files,
-            current_file_number: total_files,
+            number_of_files,
+            current_file_number: number_of_files,
             total_progress: 1.0,
+            total_files: Some(total_files),
+            suceeded_files: Some(suceeded_files),
+            failed_files: Some(failed_files)
         }).unwrap();
     }
     
@@ -235,7 +249,11 @@ async fn decrypt_files(
     let vault_key = vault.key.lock().unwrap().clone().ok_or("Vault is locked")?;
     op_state.is_cancelled.store(false, Ordering::SeqCst);
     let cancel_flag = op_state.is_cancelled.clone();
-    let total_files = files.len();
+    
+    let number_of_files = files.len();
+    let total_files = files.clone();
+    let mut suceeded_files = Vec::new();
+    let mut failed_files = Vec::new();
 
     for (index, file_path) in files.into_iter().enumerate() {
         if cancel_flag.load(Ordering::SeqCst) { break; }
@@ -252,7 +270,6 @@ async fn decrypt_files(
             let decrypted_data = cipher.decrypt(nonce, encrypted_data)
                 .map_err(|_| "Decryption failed. File may be corrupt.".to_string())?;
 
-              // --- 수정: 저장 경로 로직 변경 ---
             let source_filename = Path::new(&file_path)
                 .file_name().unwrap().to_str().unwrap()
                 .strip_suffix(".enc").unwrap();
@@ -261,31 +278,36 @@ async fn decrypt_files(
 
             Ok(())
         })();
-
-        if let Err(e) = result {
-            app.emit("ERROR_EVENT", e.to_string()).unwrap();
-            return Ok(());
-        }
         
+        match result {
+            Ok(_) => suceeded_files.push(EachFile { path: file_path.clone(), error: None }),
+            Err(e) => failed_files.push(EachFile { path: file_path.clone(), error: Some(e) }),
+        }
+
         app.emit("PROGRESS_EVENT", ProgressPayload {
-            status: "processing".to_string(),
+            status: "PROCESSING".to_string(),
             current_file_path: file_path.clone(),
-            total_files,
+            number_of_files,
             current_file_number: index + 1,
-            total_progress: (index + 1) as f64 / total_files as f64,
+            total_progress: (index + 1) as f64 / number_of_files as f64,
+            total_files: None,
+            suceeded_files: None,
+            failed_files: None,
         }).unwrap();
     }
     
     if !cancel_flag.load(Ordering::SeqCst) {
         app.emit("PROGRESS_EVENT", ProgressPayload { 
-            status: "done".to_string(),
+            status: "DONE".to_string(),
             current_file_path: "Done".to_string(), 
-            total_files,
-            current_file_number: total_files,
+            number_of_files,
+            current_file_number: number_of_files,
             total_progress: 1.0,
+            total_files: Some(total_files),
+            suceeded_files: Some(suceeded_files),
+            failed_files: Some(failed_files)
         }).unwrap();
     }
-
     Ok(())
 }
 
@@ -305,7 +327,11 @@ async fn secure_delete_files(
 ) -> Result<(), String> {
     op_state.is_cancelled.store(false, Ordering::SeqCst);
     let cancel_flag = op_state.is_cancelled.clone();
-    let total_files = files.len();
+    
+    let number_of_files = files.len();
+    let total_files = files.clone();
+    let mut suceeded_files = Vec::new();
+    let mut failed_files = Vec::new();
 
     for (index, file_path) in files.into_iter().enumerate() {
         if cancel_flag.load(Ordering::SeqCst) { break; }
@@ -337,27 +363,33 @@ async fn secure_delete_files(
             Ok(())
         })();
 
-        if let Err(e) = result {
-            app.emit("ERROR_EVENT", e.to_string()).unwrap();
-            return Ok(());
+        match result {
+            Ok(_) => suceeded_files.push(EachFile { path: file_path.clone(), error: None }),
+            Err(e) => failed_files.push(EachFile { path: file_path.clone(), error: Some(e) }),
         }
 
         app.emit("PROGRESS_EVENT", ProgressPayload {
-            status: "processing".to_string(),
+            status: "PROCESSING".to_string(),
             current_file_path: file_path.clone(),
-            total_files,
+            number_of_files,
             current_file_number: index + 1,
-            total_progress: (index + 1) as f64 / total_files as f64,
+            total_progress: (index + 1) as f64 / number_of_files as f64,
+            total_files: None,
+            suceeded_files: None,
+            failed_files: None,
         }).unwrap();
     }
     
     if !cancel_flag.load(Ordering::SeqCst) {
         app.emit("PROGRESS_EVENT", ProgressPayload { 
-            status: "done".to_string(),
+            status: "DONE".to_string(),
             current_file_path: "Done".to_string(), 
-            total_files,
-            current_file_number: total_files,
+            number_of_files,
+            current_file_number: number_of_files,
             total_progress: 1.0,
+            total_files: Some(total_files),
+            suceeded_files: Some(suceeded_files),
+            failed_files: Some(failed_files)
         }).unwrap();
     }
 

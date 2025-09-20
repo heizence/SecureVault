@@ -10,16 +10,34 @@ import Sidebar from "./components/Sidebar";
 import Settings from "./components/Settings";
 import Unlock from "./components/Unlock";
 import Setup from "./components/Setup";
-import ProgressDialog from "./components/ProgressDialog";
+import ProgressDialog, { EachFile, Status } from "./components/ProgressDialog";
 import AppEachContent from "./components/AppEachContent";
 import "./App.css";
 
 interface ProgressPayload {
   status: string;
   current_file_path: string;
-  total_files: number;
+  number_of_files: number;
   current_file_number: number;
   total_progress: number;
+  total_files: string[];
+  suceeded_files: EachFile[];
+  failed_files?: EachFile[];
+}
+
+interface ProgressState {
+  isVisible: boolean;
+  status: Status;
+  currentFile: string;
+  numberOfFiles: number;
+  currentFileNumber: number;
+  totalProgress: number;
+}
+
+interface FileStatus {
+  totalFiles: string[];
+  suceededFiles: EachFile[];
+  failedFiles?: EachFile[] | undefined;
 }
 
 const App: React.FC = () => {
@@ -30,14 +48,21 @@ const App: React.FC = () => {
   );
   const [activePage, setActivePage] = useState<Page>("encrypt");
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
-  const [progress, setProgress] = useState({
+  const [progress, setProgress] = useState<ProgressState>({
     isVisible: false,
-    status: "processing" as "processing" | "done" | "error",
+    status: Status.IDLE,
     currentFile: "",
-    totalFiles: 0,
+    numberOfFiles: 0,
     currentFileNumber: 0,
     totalProgress: 0,
   });
+
+  const [fileStatus, setFileStatus] = useState<FileStatus>({
+    totalFiles: [],
+    suceededFiles: [],
+    failedFiles: [],
+  });
+
   const [isCancelling, setIsCancelling] = useState(false); // 취소 상태를 관리
 
   const handleLock = () => {
@@ -126,13 +151,13 @@ const App: React.FC = () => {
     setStagedFiles([]);
   };
 
-  const startOperation = (initialFileName: string, totalFiles: number) => {
+  const startOperation = (initialFileName: string, numberOfFiles: number) => {
     setIsCancelling(false); // 새로운 작업을 시작하기 전에 취소 상태를 리셋
     setProgress({
       isVisible: true,
-      status: "processing",
+      status: Status.PROCESSING,
       currentFile: initialFileName,
-      totalFiles,
+      numberOfFiles,
       currentFileNumber: 1,
       totalProgress: 0,
     });
@@ -223,9 +248,9 @@ const App: React.FC = () => {
     await invoke("cancel_operation");
     setProgress({
       isVisible: false,
-      status: "processing",
+      status: Status.PROCESSING,
       currentFile: "",
-      totalFiles: 0,
+      numberOfFiles: 0,
       currentFileNumber: 0,
       totalProgress: 0,
     });
@@ -235,9 +260,9 @@ const App: React.FC = () => {
   const handleCloseProgress = () => {
     setProgress({
       isVisible: false,
-      status: "processing",
+      status: Status.IDLE,
       currentFile: "",
-      totalFiles: 0,
+      numberOfFiles: 0,
       currentFileNumber: 0,
       totalProgress: 0,
     });
@@ -255,45 +280,54 @@ const App: React.FC = () => {
 
   useEffect(() => {
     const unlistenProgress = listen<ProgressPayload>("PROGRESS_EVENT", (event) => {
-      // isCancelling 상태가 true이면, 모든 진행률 이벤트를 무시합니다.
+      // isCancelling 상태가 true이면, 모든 진행률 이벤트를 무시
       if (isCancelling) return;
 
-      const { status, current_file_path, total_files, current_file_number, total_progress } =
-        event.payload;
-      if (status === "done") {
-        setProgress((prev) => ({ ...prev, status: "done", totalProgress: 100 }));
+      const {
+        status,
+        current_file_path,
+        number_of_files,
+        current_file_number,
+        total_progress,
+        total_files,
+        suceeded_files,
+        failed_files,
+      } = event.payload;
+      if (status === Status.DONE) {
+        setProgress((prev) => ({
+          ...prev,
+          totalProgress: 100,
+        }));
+        setFileStatus({
+          totalFiles: total_files,
+          suceededFiles: suceeded_files,
+          failedFiles: failed_files,
+        });
+
+        // 100% 진행도를 잠시 보여준 후 완료 화면 표시해 주기
+        setTimeout(() => {
+          setProgress((prev) => ({
+            ...prev,
+            status: Status.DONE,
+            totalProgress: 100,
+          }));
+        }, 1500);
       } else {
         setProgress({
           isVisible: true,
-          status: "processing",
+          status: Status.PROCESSING,
           currentFile: current_file_path,
-          totalFiles: total_files,
+          numberOfFiles: number_of_files,
           currentFileNumber: current_file_number,
           totalProgress: total_progress * 100,
         });
       }
     });
 
-    const unlistenError = listen<string>("ERROR_EVENT", (event) => {
-      if (isCancelling) return; // 취소 중에는 에러 메시지도 무시
-      setProgress({
-        isVisible: false,
-        status: "processing",
-        currentFile: "",
-        totalFiles: 0,
-        currentFileNumber: 0,
-        totalProgress: 0,
-      });
-      message(t("error.operationFailedMessage", { error: event.payload }), {
-        title: t("error.operationFailed"),
-      });
-    });
-
     return () => {
       unlistenProgress.then((f) => f());
-      unlistenError.then((f) => f());
     };
-  }, [isCancelling]); // isCancelling이 변경될 때 리스너가 최신 상태를 참조하도록 합니다.
+  }, [isCancelling]);
 
   // --- 화면 렌더링 로직
   if (vaultState === "checking") {
@@ -312,9 +346,12 @@ const App: React.FC = () => {
         <ProgressDialog
           status={progress.status}
           currentFile={progress.currentFile}
-          totalFiles={progress.totalFiles}
+          numberOfFiles={progress.numberOfFiles}
           currentFileNumber={progress.currentFileNumber}
           totalProgress={progress.totalProgress}
+          totalFiles={fileStatus.totalFiles}
+          suceededFiles={fileStatus.suceededFiles}
+          failedFiles={fileStatus.failedFiles}
           onCancel={handleCancel}
           onClose={handleCloseProgress}
         />
