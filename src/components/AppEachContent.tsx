@@ -52,6 +52,7 @@ const AppEachContent: React.FC<AppEachContentProps> = ({
               {t("stagedFiles.clearAll")}
             </button>
           </div>
+
           <ul className="staged-files-list">
             {stagedFiles.map((file: StagedFile) => (
               <li key={file.path} className="staged-file-item">

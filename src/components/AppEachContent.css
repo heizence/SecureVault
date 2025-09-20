@@ -118,12 +118,14 @@
   border-radius: 0.5rem;
 }
 .staged-file-item {
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto; /* 파일 이름은 남는 공간 모두, 버튼은 내용만큼 */
   align-items: center;
-  justify-content: space-between;
+  gap: 0.5rem; /* 이름과 버튼 사이 간격 */
   padding: 0.75rem 1rem;
   border-bottom: 1px solid #e5e7eb;
   background-color: #fff;
+  /* width: 100%; */
 }
 .staged-file-item:last-child {
   border-bottom: none;
@@ -133,6 +135,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 0.9rem;
+  min-width: 0; /* grid/flex 아이템이 줄어들 수 있도록 허용 */
 }
 .remove-file-button {
   background: none;
