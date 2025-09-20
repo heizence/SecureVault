@@ -8,7 +8,7 @@
 ## 2. 다운로드
 설치 파일을 아래 링크에서 다운로드하여 바로 사용할 수 있습니다.
 
-- **[macOS(.dmg)](https://github.com/heizence/Secure-vault/releases/download/0.1.0/SecureVault_0.1.0_aarch64.dmg)**
+- **[macOS(.dmg)](https://github.com/heizence/Secure-vault/releases/download/0.1.1/SecureVault_0.1.1_aarch64.dmg)**
 
 <br/>
 
