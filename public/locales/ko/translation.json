@@ -30,17 +30,17 @@
   },
   "progress": {
     "processing": "처리 중...",
-    "complete": "작업 완료!",
+    "complete": "작업 완료",
     "processedAll": "모든 파일 처리 완료!",
     "cancel": "취소",
     "confirm": "확인"
   },
   "results": {
     "title": "작업 결과",
-    "success": "{{count}} 개 성공",
-    "failed": "{{count}} 개 실패",
-    "failedListTitle": "실패한 파일 목록",
-    "retryFailed": "실패한 파일만 다시 시도",
+    "total": "전체 {{count}}",
+    "success": "성공 {{count}}",
+    "failed": "실패 {{count}}",
+    "noContents": "내역이 없습니다.",
     "close": "닫기"
   },
   "setup": {

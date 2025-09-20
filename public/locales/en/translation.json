@@ -30,17 +30,17 @@
   },
   "progress": {
     "processing": "Processing...",
-    "complete": "Operation Complete!",
+    "complete": "Operation Complete",
     "processedAll": "All files processed!",
     "cancel": "Cancel",
     "confirm": "Close"
   },
   "results": {
     "title": "Operation result",
-    "success": "{{count}} files succeeded",
-    "failed": "{{count}} files failed",
-    "failedListTitle": "List of failure",
-    "retryFailed": "Retry operation for failed files",
+    "total": "total {{count}}",
+    "success": "success {{count}}",
+    "failed": "failed {{count}}",
+    "noContents": "No contents",
     "close": "Close"
   },
   "setup": {
