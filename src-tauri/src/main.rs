@@ -2,23 +2,24 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 use tauri::{Emitter, Manager, State};
-use aes_gcm::aead::Aead;
-use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce};
+use aes_gcm::aead::{Aead, OsRng};
+use aes_gcm::{Aes256Gcm, Key, KeyInit, Nonce, AeadCore};
 use argon2::{
     self,
     password_hash::{PasswordHasher, SaltString},
     Argon2, Params, Version,
 };
 use rand::RngCore;
-
+use serde::{Deserialize, Serialize};
 use std::env;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use walkdir::WalkDir; 
+use uuid::Uuid;
 
 // 마스터 키를 메모리에 안전하게 보관할 구조체 정의
 // Mutex를 사용하여 여러 스레드에서 동시에 접근해도 안전하도록 처리
@@ -44,9 +45,14 @@ struct ProgressPayload {
     failed_files: Option<Vec<EachFile>>
 }
 
+// 파일 헤더에 저장될 메타데이터 구조체
+#[derive(Serialize, Deserialize)]
+struct FileMetadata {
+    original_filename: String,
+}
+
 // 작업 결과 요약 구조체
 #[derive(Clone, serde::Serialize)]
-
 struct EachFile {
     path: String,
     error: Option<String>
@@ -54,7 +60,6 @@ struct EachFile {
 
 /******************* 앱 설정 파일 경로를 가져오는 헬퍼 함수 ******************/
 fn get_vault_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    // --- FIX 1: ok_or -> map_err로 수정 ---
     let config_dir = app.path()
         .app_config_dir()
         .map_err(|e| e.to_string())?;
@@ -177,44 +182,62 @@ async fn encrypt_files(
     
     let number_of_files = files.len();
     let total_files = files.clone();
+
+    let total_size: u64 = files.iter().map(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(0)).sum();
+    let mut total_bytes_processed: u64 = 0;
+
     let mut suceeded_files = Vec::new();
     let mut failed_files = Vec::new();
 
-    for (index, file_path) in files.into_iter().enumerate() {
+    for (index, file_path) in files.iter().enumerate() {
         if cancel_flag.load(Ordering::SeqCst) { break; }
 
+        let file_size = fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
         let result: Result<(), String> = (|| {
-            let original_data = fs::read(&file_path).map_err(|e| e.to_string())?;
-
-            let mut nonce_bytes = [0u8; 12];
-            rand::rng().fill_bytes(&mut nonce_bytes);
-            let nonce = Nonce::from_slice(&nonce_bytes);
+            let source_path = Path::new(file_path);
             
+            let metadata = FileMetadata {
+                original_filename: source_path.file_name().unwrap().to_string_lossy().to_string(),
+            };
+            let metadata_bytes = serde_json::to_vec(&metadata).map_err(|e| e.to_string())?;
+
             let cipher = Aes256Gcm::new(&vault_key);
-            let encrypted_data = cipher.encrypt(nonce, original_data.as_ref()).map_err(|e| e.to_string())?;
+            let metadata_nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 이제 이 함수를 찾을 수 있습니다.
+            let encrypted_metadata = cipher.encrypt(&metadata_nonce, metadata_bytes.as_ref()).map_err(|e| e.to_string())?;
 
+            let original_data = fs::read(&file_path).map_err(|e| e.to_string())?;
+            let content_nonce = Aes256Gcm::generate_nonce(&mut OsRng); // 여기도 마찬가지
+            let encrypted_content = cipher.encrypt(&content_nonce, original_data.as_ref()).map_err(|e| e.to_string())?;
+            
             let mut final_data = Vec::new();
-            final_data.extend_from_slice(&nonce_bytes);
-            final_data.extend_from_slice(&encrypted_data);
-
-            let dest_filename = format!("{}.enc", Path::new(&file_path).file_name().unwrap().to_str().unwrap());
-            let dest_path = Path::new(&destination_dir).join(dest_filename);
+            final_data.extend_from_slice(metadata_nonce.as_slice());
+            final_data.extend_from_slice(&(encrypted_metadata.len() as u16).to_be_bytes());
+            final_data.extend_from_slice(&encrypted_metadata);
+            final_data.extend_from_slice(content_nonce.as_slice());
+            final_data.extend_from_slice(&encrypted_content);
+            
+            let random_filename = format!("{}.enc", Uuid::new_v4().to_string());
+            let dest_path = Path::new(&destination_dir).join(random_filename);
             fs::write(dest_path, final_data).map_err(|e| e.to_string())?;
 
             Ok(())
         })();
 
         match result {
-            Ok(_) => suceeded_files.push(EachFile { path: file_path.clone(), error: None }),
+            Ok(_) => {
+                suceeded_files.push(EachFile { path: file_path.clone(), error: None });
+                total_bytes_processed += file_size;
+            },
             Err(e) => failed_files.push(EachFile { path: file_path.clone(), error: Some(e) }),
         }
 
+        let total_progress = if total_size > 0 { total_bytes_processed as f64 / total_size as f64 } else { 0.0 };
         app.emit("PROGRESS_EVENT", ProgressPayload {
             status: "PROCESSING".to_string(),
             current_file_path: file_path.clone(),
             number_of_files,
             current_file_number: index + 1,
-            total_progress: (index + 1) as f64 / number_of_files as f64,
+            total_progress,//: (index + 1) as f64 / number_of_files as f64,
             total_files: None,
             suceeded_files: None,
             failed_files: None,
@@ -252,44 +275,51 @@ async fn decrypt_files(
     
     let number_of_files = files.len();
     let total_files = files.clone();
+
+    let total_size: u64 = files.iter().map(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(0)).sum();
+    let mut total_bytes_processed: u64 = 0;
+
     let mut suceeded_files = Vec::new();
     let mut failed_files = Vec::new();
 
-    for (index, file_path) in files.into_iter().enumerate() {
+    for (index, file_path) in files.iter().enumerate() {
         if cancel_flag.load(Ordering::SeqCst) { break; }
 
+        let file_size = fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
         let result: Result<(), String> = (|| {
-            let encrypted_file_data = fs::read(&file_path).map_err(|e| e.to_string())?;
-            if encrypted_file_data.len() < 12 { return Err("Invalid encrypted file".into()); }
-
-            let nonce_bytes = &encrypted_file_data[0..12];
-            let encrypted_data = &encrypted_file_data[12..];
-            let nonce = Nonce::from_slice(nonce_bytes);
-            
+            let encrypted_file_data = fs::read(file_path).map_err(|e| e.to_string())?;
+            if encrypted_file_data.len() < 14 { return Err("Invalid file: too short for header".into()); }
+            let metadata_nonce = Nonce::from_slice(&encrypted_file_data[0..12]);
+            let encrypted_metadata_len = u16::from_be_bytes(encrypted_file_data[12..14].try_into().unwrap()) as usize;
+            let metadata_end = 14 + encrypted_metadata_len;
+            if encrypted_file_data.len() < metadata_end + 12 { return Err("Invalid file: metadata length mismatch".into()); }
+            let encrypted_metadata = &encrypted_file_data[14..metadata_end];
+            let content_nonce = Nonce::from_slice(&encrypted_file_data[metadata_end..metadata_end + 12]);
+            let encrypted_content = &encrypted_file_data[metadata_end + 12..];
             let cipher = Aes256Gcm::new(&vault_key);
-            let decrypted_data = cipher.decrypt(nonce, encrypted_data)
-                .map_err(|_| "Decryption failed. File may be corrupt.".to_string())?;
-
-            let source_filename = Path::new(&file_path)
-                .file_name().unwrap().to_str().unwrap()
-                .strip_suffix(".enc").unwrap();
-            let dest_path = Path::new(&destination_dir).join(source_filename);
-            fs::write(dest_path, decrypted_data).map_err(|e| e.to_string())?;
-
+            let metadata_bytes = cipher.decrypt(metadata_nonce, encrypted_metadata.as_ref()).map_err(|_| "Decryption failed: metadata corrupt".to_string())?;
+            let metadata: FileMetadata = serde_json::from_slice(&metadata_bytes).map_err(|e| e.to_string())?;
+            let decrypted_content = cipher.decrypt(content_nonce, encrypted_content.as_ref()).map_err(|_| "Decryption failed: content corrupt".to_string())?;
+            let dest_path = Path::new(&destination_dir).join(metadata.original_filename);
+            fs::write(dest_path, decrypted_content).map_err(|e| e.to_string())?;
             Ok(())
         })();
         
         match result {
-            Ok(_) => suceeded_files.push(EachFile { path: file_path.clone(), error: None }),
+            Ok(_) => {
+                suceeded_files.push(EachFile { path: file_path.clone(), error: None });
+                total_bytes_processed += file_size;
+            },
             Err(e) => failed_files.push(EachFile { path: file_path.clone(), error: Some(e) }),
         }
 
+        let total_progress = if total_size > 0 { total_bytes_processed as f64 / total_size as f64 } else { 0.0 };
         app.emit("PROGRESS_EVENT", ProgressPayload {
             status: "PROCESSING".to_string(),
             current_file_path: file_path.clone(),
             number_of_files,
             current_file_number: index + 1,
-            total_progress: (index + 1) as f64 / number_of_files as f64,
+            total_progress,//: (index + 1) as f64 / number_of_files as f64,
             total_files: None,
             suceeded_files: None,
             failed_files: None,
@@ -330,14 +360,19 @@ async fn secure_delete_files(
     
     let number_of_files = files.len();
     let total_files = files.clone();
+
+    let total_size: u64 = files.iter().map(|p| fs::metadata(p).map(|m| m.len()).unwrap_or(0)).sum();
+    let mut total_bytes_processed: u64 = 0;
+
     let mut suceeded_files = Vec::new();
     let mut failed_files = Vec::new();
 
-    for (index, file_path) in files.into_iter().enumerate() {
+    for (index, file_path) in files.iter().enumerate() {
         if cancel_flag.load(Ordering::SeqCst) { break; }
 
+        let file_size = fs::metadata(file_path).map(|m| m.len()).unwrap_or(0);
         let result: Result<(), String> = (|| {
-            let path = Path::new(&file_path);
+            let path = Path::new(file_path);
             let metadata = fs::metadata(path).map_err(|e| e.to_string())?;
             if metadata.is_file() {
                 let file_size = metadata.len();
@@ -364,16 +399,20 @@ async fn secure_delete_files(
         })();
 
         match result {
-            Ok(_) => suceeded_files.push(EachFile { path: file_path.clone(), error: None }),
+            Ok(_) => {
+                suceeded_files.push(EachFile { path: file_path.clone(), error: None });
+                total_bytes_processed += file_size;
+            },
             Err(e) => failed_files.push(EachFile { path: file_path.clone(), error: Some(e) }),
         }
 
+        let total_progress = if total_size > 0 { total_bytes_processed as f64 / total_size as f64 } else { 0.0 };
         app.emit("PROGRESS_EVENT", ProgressPayload {
             status: "PROCESSING".to_string(),
             current_file_path: file_path.clone(),
             number_of_files,
             current_file_number: index + 1,
-            total_progress: (index + 1) as f64 / number_of_files as f64,
+            total_progress,//: (index + 1) as f64 / number_of_files as f64,
             total_files: None,
             suceeded_files: None,
             failed_files: None,
