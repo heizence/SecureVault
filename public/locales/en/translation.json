@@ -35,6 +35,14 @@
     "cancel": "Cancel",
     "confirm": "Close"
   },
+  "results": {
+    "title": "Operation result",
+    "success": "{{count}} files succeeded",
+    "failed": "{{count}} files failed",
+    "failedListTitle": "List of failure",
+    "retryFailed": "Retry operation for failed files",
+    "close": "Close"
+  },
   "setup": {
     "title": "Create Your Secure Vault",
     "prompt": "Choose a master password to protect your files.",
